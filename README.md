@@ -114,7 +114,7 @@ iCloud 不支持可靠的 UID REPORT 查询，因此程序使用由飞书 `recor
 - 使用 concurrency 防止并发写入。
 - 仅授予 `contents: read`。
 
-在 Private 仓库的 **Settings → Secrets and variables → Actions** 中配置：
+在仓库的 **Settings → Secrets and variables → Actions** 中配置：
 
 ```text
 QQ_EMAIL
