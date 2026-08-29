@@ -1,0 +1,62 @@
+name: Daily Job Mail Assistant
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Parse only; do not write Base/Calendar or send the report"
+        required: false
+        default: false
+        type: boolean
+      calendar_only:
+        description: "Retry pending/failed iCloud events only; do not scan mail or send a report"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: job-mail-assistant-daily
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      QQ_EMAIL: ${{ secrets.QQ_EMAIL }}
+      QQ_AUTH_CODE: ${{ secrets.QQ_AUTH_CODE }}
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_WIKI_URL: ${{ secrets.FEISHU_WIKI_URL }}
+      ICLOUD_USERNAME: ${{ secrets.ICLOUD_USERNAME }}
+      ICLOUD_APP_PASSWORD: ${{ secrets.ICLOUD_APP_PASSWORD }}
+      ICLOUD_CALENDAR_NAME: ${{ secrets.ICLOUD_CALENDAR_NAME }}
+      AI_API_KEY: ${{ secrets.AI_API_KEY }}
+      AI_BASE_URL: ${{ secrets.AI_BASE_URL }}
+      AI_MODEL: ${{ secrets.AI_MODEL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install --no-deps .
+      - name: Run (live)
+        if: github.event_name != 'workflow_dispatch' || (inputs.dry_run != true && inputs.calendar_only != true)
+        run: python -m job_mail_assistant run
+      - name: Run (dry-run)
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run == true
+        run: python -m job_mail_assistant run --dry-run
+      - name: Retry Calendar only
+        if: github.event_name == 'workflow_dispatch' && inputs.calendar_only == true
+        run: python -m job_mail_assistant retry-calendar
