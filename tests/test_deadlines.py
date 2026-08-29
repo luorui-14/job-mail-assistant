@@ -112,3 +112,21 @@ def test_workday_outside_dataset_fails_closed(monkeypatch: pytest.MonkeyPatch) -
     assert result.start is None
     assert result.needs_confirmation
     assert "不覆盖" in (result.reason or "")
+
+
+def test_explicit_datetime_text_repairs_incomplete_ai_shape() -> None:
+    parsed = action(
+        TimeExpression(kind="absolute", year=2026, hour=10, minute=0),
+        time_type="fixed",
+    )
+    parsed.original_time_text = "2026-08-30 10:00:00 -- 11:00:00"
+
+    result = resolve_time(
+        parsed,
+        datetime(2026, 8, 28, 15, 42, tzinfo=SHANGHAI),
+    )
+
+    assert result.start == datetime(2026, 8, 30, 10, 0, tzinfo=SHANGHAI)
+    assert result.end == datetime(2026, 8, 30, 11, 0, tzinfo=SHANGHAI)
+    assert not result.inferred
+    assert not result.needs_confirmation

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -12,6 +13,20 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 class TimeResolutionError(ValueError):
     pass
+
+
+EXPLICIT_DATETIME_RE = re.compile(
+    r"(?P<year>\d{4})\s*(?:年|[-/.])\s*"
+    r"(?P<month>\d{1,2})\s*(?:月|[-/.])\s*"
+    r"(?P<day>\d{1,2})\s*(?:日)?\s+"
+    r"(?P<hour>\d{1,2})\s*:\s*(?P<minute>\d{2})"
+    r"(?:\s*:\s*\d{2})?"
+)
+RANGE_END_TIME_RE = re.compile(
+    r"(?:--|—|–|至|到|~|～)\s*"
+    r"(?P<hour>\d{1,2})\s*:\s*(?P<minute>\d{2})"
+    r"(?:\s*:\s*\d{2})?"
+)
 
 
 def _aware_shanghai(value: datetime) -> datetime:
@@ -124,6 +139,38 @@ def _resolve_expression(
     raise TimeResolutionError("邮件没有提供可确定的时间")
 
 
+def _explicit_datetimes_from_text(value: str | None) -> tuple[datetime, datetime | None] | None:
+    """Recover a complete explicit datetime that the AI represented incompletely."""
+    if not value:
+        return None
+    match = EXPLICIT_DATETIME_RE.search(value)
+    if not match:
+        return None
+    try:
+        start = datetime(
+            int(match.group("year")),
+            int(match.group("month")),
+            int(match.group("day")),
+            int(match.group("hour")),
+            int(match.group("minute")),
+            tzinfo=SHANGHAI,
+        )
+    except ValueError:
+        return None
+    end_match = RANGE_END_TIME_RE.search(value, match.end())
+    if not end_match:
+        return start, None
+    try:
+        end = datetime.combine(
+            start.date(),
+            time(int(end_match.group("hour")), int(end_match.group("minute"))),
+            tzinfo=SHANGHAI,
+        )
+    except ValueError:
+        return start, None
+    return start, end if end > start else None
+
+
 def resolve_time(parsed: ParsedEmail, received_at: datetime) -> ResolvedTime:
     received = _aware_shanghai(received_at)
     if parsed.classification != "action":
@@ -133,9 +180,15 @@ def resolve_time(parsed: ParsedEmail, received_at: datetime) -> ResolvedTime:
             parsed.time_expression, received, time_type=parsed.time_type
         )
     except TimeResolutionError as exc:
-        return ResolvedTime(None, None, False, True, str(exc))
+        recovered = _explicit_datetimes_from_text(parsed.original_time_text)
+        if not recovered:
+            return ResolvedTime(None, None, False, True, str(exc))
+        start, recovered_end = recovered
+        inferred = False
+    else:
+        recovered_end = None
 
-    end = None
+    end = recovered_end
     if parsed.end_time_expression:
         try:
             end, _ = _resolve_expression(

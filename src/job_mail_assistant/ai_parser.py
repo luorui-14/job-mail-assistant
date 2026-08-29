@@ -29,6 +29,27 @@ SYSTEM_PROMPT = """你是求职邮件信息提取器。只输出符合 JSON Sche
 """
 
 
+def _remove_link_only_confirmation(parsed: ParsedEmail) -> None:
+    """Clear an AI warning when the only uncertainty was choosing the sole URL."""
+    if not parsed.needs_confirmation or not parsed.confirmation_reason:
+        return
+    clauses = [
+        clause.strip()
+        for clause in parsed.confirmation_reason.replace("；", ";").split(";")
+        if clause.strip()
+    ]
+    remaining = [
+        clause
+        for clause in clauses
+        if not any(term in clause.casefold() for term in ("链接", "入口", "url"))
+    ]
+    if remaining:
+        parsed.confirmation_reason = "；".join(remaining)
+    else:
+        parsed.needs_confirmation = False
+        parsed.confirmation_reason = None
+
+
 def _strict_json_schema(schema: dict[str, Any]) -> dict[str, Any]:
     """Make every object property required as demanded by strict structured output."""
     schema = json.loads(json.dumps(schema))
@@ -115,4 +136,11 @@ class AIParser:
             parsed.action_url_index = None
             parsed.needs_confirmation = True
             parsed.confirmation_reason = "AI 返回的链接序号无效"
+        if (
+            parsed.classification == "action"
+            and parsed.action_url_index is None
+            and len(mail.urls) == 1
+        ):
+            parsed.action_url_index = 0
+            _remove_link_only_confirmation(parsed)
         return parsed

@@ -43,6 +43,16 @@ def _signature(
     )
 
 
+def _is_repairable(record: BaseRecord) -> bool:
+    """Retry only rows that new deterministic parser safeguards can repair."""
+    reason = record.text("确认说明").casefold()
+    missing_time = value_to_datetime(record.fields.get("截止/面试时间")) is None
+    missing_link = record.text("链接") == ""
+    return (missing_time and "缺少月或日" in reason) or (
+        missing_link and any(term in reason for term in ("链接", "入口", "url"))
+    )
+
+
 @dataclass
 class RecordMatch:
     record: BaseRecord | None
@@ -62,9 +72,9 @@ class RecordIndex:
         for record in self.records:
             record_ids = _ids(record)
             if mail.message_id and mail.message_id in record_ids:
-                return RecordMatch(record, True)
+                return RecordMatch(record, not _is_repairable(record))
             if record.text("邮件指纹") == mail.fingerprint:
-                return RecordMatch(record, True)
+                return RecordMatch(record, not _is_repairable(record))
         if mail.references:
             for record in self.records:
                 if _ids(record) & mail.references:
@@ -86,9 +96,9 @@ class RecordIndex:
     def is_exact_duplicate(self, mail: MailMessage) -> bool:
         for record in self.records:
             if mail.message_id and mail.message_id in _ids(record):
-                return True
+                return not _is_repairable(record)
             if record.text("邮件指纹") == mail.fingerprint:
-                return True
+                return not _is_repairable(record)
         return False
 
     def add(self, record: BaseRecord) -> None:

@@ -47,6 +47,31 @@ def test_same_message_id_is_duplicate() -> None:
     assert match.record is record
 
 
+def test_incomplete_link_record_is_reprocessed_for_repair() -> None:
+    record = BaseRecord(
+        "rec1",
+        {
+            "Message-ID": "mail@example.com",
+            "截止/面试时间": int(
+                datetime(2026, 8, 30, 10, tzinfo=SHANGHAI).timestamp() * 1000
+            ),
+            "链接": "",
+            "确认说明": "候选链接[0]可能为确认入口，但无法可靠确定",
+        },
+    )
+    index = RecordIndex([record])
+
+    assert not index.is_exact_duplicate(mail())
+    match = index.match(
+        mail(),
+        parsed(),
+        ResolvedTime(datetime(2026, 8, 30, 10, tzinfo=SHANGHAI), None, False, False),
+    )
+
+    assert not match.duplicate
+    assert match.record is record
+
+
 def test_thread_reference_updates_existing_record() -> None:
     record = BaseRecord("rec1", {"Message-ID": "parent@example.com"})
     child = mail("child@example.com")

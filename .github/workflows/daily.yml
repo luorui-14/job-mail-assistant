@@ -2,7 +2,9 @@ name: Daily Job Mail Assistant
 
 on:
   schedule:
-    - cron: "0 0 * * *"
+    # Start before 08:00 and avoid GitHub Actions' top-of-hour congestion.
+    - cron: "50 7 * * *"
+      timezone: "Asia/Shanghai"
   workflow_dispatch:
     inputs:
       dry_run:
