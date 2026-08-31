@@ -2,8 +2,8 @@ name: Daily Job Mail Assistant
 
 on:
   schedule:
-    # Start before 08:00 and avoid GitHub Actions' top-of-hour congestion.
-    - cron: "50 7 * * *"
+    # Leave several hours of slack for GitHub's delayed schedule queue and avoid the hour boundary.
+    - cron: "37 4 * * *"
       timezone: "Asia/Shanghai"
   workflow_dispatch:
     inputs:
