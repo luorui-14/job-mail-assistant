@@ -6,6 +6,7 @@ from typing import Any
 
 from openai import APIStatusError, BadRequestError, OpenAI
 
+from .confirmations import normalize_confirmation
 from .models import MailMessage, ParsedEmail
 
 SYSTEM_PROMPT = """你是求职邮件信息提取器。只输出符合 JSON Schema 的对象。
@@ -23,7 +24,8 @@ SYSTEM_PROMPT = """你是求职邮件信息提取器。只输出符合 JSON Sche
 5. 无法可靠确定时间用 ambiguous 或 none，并 needs_confirmation=true。
 6. time_type：截止时间为 deadline，固定发生时间为 fixed，无时间为 none。
 7. action_url_index 只能是给定候选链接的从 0 开始序号；不确定则 null。
-8. 公司、岗位不确定时留 null，不猜测。
+8. 公司、岗位不确定时留 null，不猜测。岗位是可选信息，缺失本身不得触发
+   needs_confirmation，也不得产生“岗位无法确定”之类的确认原因。
 9. item_type 必须选最贴切的枚举；泛称面试用“其他面试”。
 10. 行动邮件没有可靠入口链接或候选链接明显冲突时，needs_confirmation=true 并说明原因。
 """
@@ -132,6 +134,10 @@ class AIParser:
             parsed = ParsedEmail.model_validate(json.loads(content))
         except Exception as exc:
             raise AIParseError("AI response failed schema validation") from exc
+        parsed.needs_confirmation, normalized_reason = normalize_confirmation(
+            parsed.needs_confirmation, parsed.confirmation_reason
+        )
+        parsed.confirmation_reason = normalized_reason or None
         if parsed.action_url_index is not None and parsed.action_url_index >= len(mail.urls):
             parsed.action_url_index = None
             parsed.needs_confirmation = True

@@ -48,3 +48,40 @@ def test_only_candidate_url_repairs_link_only_ai_uncertainty(monkeypatch) -> Non
     assert parsed.action_url_index == 0
     assert not parsed.needs_confirmation
     assert parsed.confirmation_reason is None
+
+
+def test_missing_position_does_not_require_confirmation(monkeypatch) -> None:
+    parser = AIParser("key", "https://ai.example.com/v1", "model")
+    content = """{
+        "classification": "action",
+        "company": "快手",
+        "position": null,
+        "item_type": "测评",
+        "time_type": "deadline",
+        "original_time_text": "7个工作日之内",
+        "time_expression": {"kind": "relative", "year": null, "month": null,
+            "day": null, "hour": null, "minute": null, "relative_value": 7,
+            "relative_unit": "workday", "week_offset": null, "weekday": null},
+        "end_time_expression": null,
+        "action_url_index": null,
+        "needs_confirmation": true,
+        "confirmation_reason": "岗位名称无法确定",
+        "progress_summary": null
+    }"""
+    monkeypatch.setattr(parser, "_request", lambda *_: content)
+    mail = MailMessage(
+        uid="1",
+        message_id="kuaishou@example.com",
+        fingerprint="f" * 64,
+        subject="在线测评邀请",
+        sender="hr@example.com",
+        received_at=datetime(2026, 8, 28, 12, 19, tzinfo=SHANGHAI),
+        body="请在7个工作日之内完成测评",
+        urls=[],
+    )
+
+    parsed = parser.parse(mail)
+
+    assert parsed.position is None
+    assert not parsed.needs_confirmation
+    assert parsed.confirmation_reason is None

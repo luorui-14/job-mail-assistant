@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from .confirmations import normalize_confirmation
 from .deadlines import SHANGHAI
 from .feishu import value_to_datetime
 from .models import BaseRecord, RunStats
@@ -9,9 +10,12 @@ from .models import BaseRecord, RunStats
 
 def _label(record: BaseRecord) -> str:
     company = record.text("公司") or "公司待确认"
-    position = record.text("岗位") or "岗位待确认"
     item_type = record.text("类型") or "类型待确认"
-    return f"{company}｜{position}｜{item_type}"
+    parts = [company]
+    if position := record.text("岗位"):
+        parts.append(position)
+    parts.append(item_type)
+    return "｜".join(parts)
 
 
 def _format_time(value: datetime | None) -> str:
@@ -51,9 +55,13 @@ def render_report(
         if bool(record.fields.get("已完成")):
             continue
         when = value_to_datetime(record.fields.get("截止/面试时间"))
-        needs_confirmation = bool(record.fields.get("需要人工确认"))
+        needs_confirmation, confirmation_reason = normalize_confirmation(
+            bool(record.fields.get("需要人工确认")), record.text("确认说明")
+        )
         if needs_confirmation or when is None:
-            confirmations.append(record)
+            confirmations.append(
+                BaseRecord(record.record_id, {**record.fields, "确认说明": confirmation_reason})
+            )
         elif when >= now:
             pending.append((when, record))
     pending.sort(key=lambda item: item[0])

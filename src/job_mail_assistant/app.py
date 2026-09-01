@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from .ai_parser import AIParser
 from .apple_calendar import AppleCalendar
 from .config import Config
+from .confirmations import normalize_confirmation
 from .deadlines import SHANGHAI, resolve_time
 from .feishu import (
     STATE_TABLE_NAME,
@@ -126,21 +127,25 @@ def record_fields(
     existing: BaseRecord | None = None,
     now: datetime,
 ) -> dict[str, object]:
+    parsed_needs_confirmation, parsed_reason = normalize_confirmation(
+        parsed.needs_confirmation, parsed.confirmation_reason
+    )
+    resolved_needs_confirmation, resolved_reason = normalize_confirmation(
+        resolved.needs_confirmation, resolved.reason
+    )
     needs_confirmation = (
-        parsed.needs_confirmation
-        or resolved.needs_confirmation
+        parsed_needs_confirmation
+        or resolved_needs_confirmation
         or not parsed.company
-        or not parsed.position
         or not parsed.item_type
         or resolved.start is None
     )
     reasons = [
         reason
         for reason in (
-            parsed.confirmation_reason,
-            resolved.reason,
+            parsed_reason,
+            resolved_reason,
             "公司名称无法确定" if not parsed.company else None,
-            "岗位名称无法确定" if not parsed.position else None,
             "事项类型无法确定" if not parsed.item_type else None,
         )
         if reason
@@ -178,13 +183,23 @@ def _merge_record(record: BaseRecord, changes: dict[str, object]) -> BaseRecord:
 
 def _event_title(record: BaseRecord) -> str:
     company = record.text("公司") or "公司待确认"
-    position = record.text("岗位") or "岗位待确认"
     item_type = record.text("类型") or "事项"
     if record.text("时间类型") == "deadline":
         suffix = f"{item_type}截止"
     else:
         suffix = item_type
-    return f"{company}｜{position}｜{suffix}"
+    parts = [company]
+    if position := record.text("岗位"):
+        parts.append(position)
+    parts.append(suffix)
+    return "｜".join(parts)
+
+
+def _record_needs_confirmation(record: BaseRecord) -> bool:
+    needs_confirmation, _ = normalize_confirmation(
+        bool(record.fields.get("需要人工确认")), record.text("确认说明")
+    )
+    return needs_confirmation
 
 
 def _event_description(record: BaseRecord, default_end: bool) -> str:
@@ -215,7 +230,7 @@ def sync_calendars(
         record
         for record in records
         if not bool(record.fields.get("已完成"))
-        and not bool(record.fields.get("需要人工确认"))
+        and not _record_needs_confirmation(record)
         and value_to_datetime(record.fields.get("截止/面试时间")) is not None
         and (
             record.text("Calendar Event ID") == ""

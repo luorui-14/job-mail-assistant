@@ -160,3 +160,22 @@ def test_base_record_text_reads_hyperlink_url() -> None:
     )
 
     assert record.text("链接") == "https://example.com/assessment"
+
+
+def test_missing_position_is_stored_without_confirmation() -> None:
+    extraction = parsed()
+    extraction.position = None
+    extraction.needs_confirmation = True
+    extraction.confirmation_reason = "岗位名称无法确定"
+    deadline = datetime(2026, 8, 30, 10, tzinfo=SHANGHAI)
+
+    fields = record_fields(
+        mail(),
+        extraction,
+        ResolvedTime(deadline, None, False, True, "岗位名称无法确定"),
+        now=datetime(2026, 8, 28, 10, tzinfo=SHANGHAI),
+    )
+
+    assert fields["岗位"] == ""
+    assert fields["需要人工确认"] is False
+    assert fields["确认说明"] == ""

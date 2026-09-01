@@ -94,6 +94,7 @@ class FakeFeishu:
 
 class FakeCalendar:
     calls = 0
+    titles: list[str] = []
 
     def __init__(self, *_):
         pass
@@ -104,8 +105,9 @@ class FakeCalendar:
     def __exit__(self, *_):
         pass
 
-    def upsert_event(self, **_):
+    def upsert_event(self, **kwargs):
         self.__class__.calls += 1
+        self.__class__.titles.append(kwargs["title"])
         return "created"
 
 
@@ -128,6 +130,7 @@ def test_two_runs_do_not_duplicate_record_or_calendar(monkeypatch):
     FakeFeishu.records = []
     FakeFeishu.cursor_record = None
     FakeCalendar.calls = 0
+    FakeCalendar.titles = []
     FakeMailbox.reports = []
     monkeypatch.setattr("job_mail_assistant.app.QQMailbox", FakeMailbox)
     monkeypatch.setattr("job_mail_assistant.app.AIParser", FakeAI)
@@ -161,6 +164,7 @@ def test_calendar_retry_does_not_read_mail_or_send_report(monkeypatch):
         )
     ]
     FakeCalendar.calls = 0
+    FakeCalendar.titles = []
     FakeMailbox.reports = []
     monkeypatch.setattr("job_mail_assistant.app.FeishuClient", FakeFeishu)
     monkeypatch.setattr("job_mail_assistant.app.AppleCalendar", FakeCalendar)
@@ -169,3 +173,32 @@ def test_calendar_retry_does_not_read_mail_or_send_report(monkeypatch):
     assert FakeCalendar.calls == 1
     assert FakeMailbox.reports == []
     assert FakeFeishu.records[0].fields["Calendar 状态"] == "created"
+
+
+def test_position_only_confirmation_does_not_block_calendar_retry(monkeypatch):
+    when = datetime(2026, 9, 8, 12, 19, tzinfo=SHANGHAI)
+    FakeFeishu.records = [
+        BaseRecord(
+            "rec-calendar",
+            {
+                "公司": "快手",
+                "岗位": "",
+                "类型": "测评",
+                "时间类型": "deadline",
+                "截止/面试时间": int(when.timestamp() * 1000),
+                "需要人工确认": True,
+                "确认说明": "岗位名称无法确定",
+                "已完成": False,
+                "Calendar Event ID": "",
+                "Calendar 状态": "failed",
+            },
+        )
+    ]
+    FakeCalendar.calls = 0
+    FakeCalendar.titles = []
+    monkeypatch.setattr("job_mail_assistant.app.FeishuClient", FakeFeishu)
+    monkeypatch.setattr("job_mail_assistant.app.AppleCalendar", FakeCalendar)
+
+    assert retry_calendars(config()) == 0
+    assert FakeCalendar.calls == 1
+    assert FakeCalendar.titles == ["快手｜测评截止"]
