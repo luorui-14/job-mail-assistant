@@ -1,6 +1,6 @@
 # Job Mail Assistant
 
-一个仅供个人使用的轻量求职邮件自动处理工具。每天北京时间 04:37 从 QQ 邮箱读取最近 7 天邮件，将新增测评、笔试和面试事项写入飞书多维表格、同步到 iCloud Calendar，并在 08:00 前发送客观早报。
+一个仅供个人使用的轻量求职邮件自动处理工具。每天北京时间 00:37 起由 GitHub Actions 调度，从 QQ 邮箱读取最近 7 天邮件，将新增测评、笔试和面试事项写入飞书多维表格、同步到 iCloud Calendar，并尽量在 08:00 前发送客观早报。GitHub 的定时任务可能排队延迟，因此预留了整个后半夜的交付余量。
 
 ## 工作方式
 
@@ -109,7 +109,7 @@ iCloud 不支持可靠的 UID REPORT 查询，因此程序使用由飞书 `recor
 
 工作流 `.github/workflows/daily.yml`：
 
-- 每天北京时间 `04:37` 运行，并显式使用 `Asia/Shanghai` 时区；避开 GitHub Actions 整点拥堵并为调度队列预留数小时，确保早报尽量在 08:00 前送达。
+- 每天北京时间 `00:37` 起由 GitHub Actions 调度，并显式使用 `Asia/Shanghai` 时区；避开整点拥堵并预留整个后半夜来吸收调度队列延迟，以尽量在 08:00 前送达早报。
 - 支持 `Run workflow`，可选择 dry-run 或仅重试 Calendar。
 - 使用 concurrency 防止并发写入。
 - 仅授予 `contents: read`。

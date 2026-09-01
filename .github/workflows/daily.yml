@@ -2,8 +2,8 @@ name: Daily Job Mail Assistant
 
 on:
   schedule:
-    # Leave several hours of slack for GitHub's delayed schedule queue and avoid the hour boundary.
-    - cron: "37 4 * * *"
+    # Leave the full overnight window for GitHub's delayed queue and avoid the hour boundary.
+    - cron: "37 0 * * *"
       timezone: "Asia/Shanghai"
   workflow_dispatch:
     inputs:
@@ -42,10 +42,10 @@ jobs:
       AI_BASE_URL: ${{ secrets.AI_BASE_URL }}
       AI_MODEL: ${{ secrets.AI_MODEL }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
           cache: pip
