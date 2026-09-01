@@ -96,18 +96,6 @@ def render_report(
         lines.extend(f"- {warning}" for warning in warnings)
 
     lines.extend(
-        [
-            "",
-            "运行摘要",
-            f"Fetched emails: {stats.fetched}",
-            f"Recruiting candidates: {stats.candidates}",
-            f"Relevant recruiting emails: {stats.relevant}",
-            f"New records: {stats.new_records}",
-            f"Updated records: {stats.updated_records}",
-            f"Duplicates skipped: {stats.duplicates}",
-            f"Calendar events created: {stats.calendar_created}",
-            f"Calendar events updated: {stats.calendar_updated}",
-            f"Needs confirmation: {stats.needs_confirmation}",
-        ]
+        ["", f"本次处理：新增 {stats.new_records} 项，更新 {stats.updated_records} 项。"]
     )
     return subject, "\n".join(lines).strip() + "\n"

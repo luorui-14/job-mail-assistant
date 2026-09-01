@@ -33,3 +33,31 @@ def test_legacy_position_only_confirmation_is_rendered_as_pending_without_placeh
     assert "快手｜测评" in body
     assert "岗位待确认" not in body
     assert "三、需要人工确认\n没有需要人工确认的事项。" in body
+
+
+def test_report_uses_compact_chinese_processing_summary_and_keeps_warnings() -> None:
+    stats = RunStats(
+        fetched=58,
+        candidates=22,
+        relevant=3,
+        new_records=2,
+        updated_records=1,
+        duplicates=13,
+        calendar_created=1,
+        needs_confirmation=2,
+    )
+
+    _, body = render_report(
+        run_started_at=datetime(2026, 9, 1, 8, tzinfo=SHANGHAI),
+        changed_records=[],
+        all_records=[],
+        progress_items=[],
+        warnings=["Calendar 连接失败"],
+        stats=stats,
+    )
+
+    assert "本次处理：新增 2 项，更新 1 项。" in body
+    assert "五、同步异常\n- Calendar 连接失败" in body
+    assert "运行摘要" not in body
+    assert "Fetched emails" not in body
+    assert "Duplicates skipped" not in body
