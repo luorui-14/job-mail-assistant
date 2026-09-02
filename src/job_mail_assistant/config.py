@@ -22,7 +22,7 @@ class Config:
     ai_model: str
     icloud_calendar_name: str = "秋招"
     feishu_table_name: str = "测评&面试"
-    scan_days: int = 7
+    scan_days: int = 2
 
     @classmethod
     def from_env(cls) -> Config:
@@ -46,7 +46,7 @@ class Config:
             raise ConfigError("Missing required environment variables: " + ", ".join(missing))
 
         try:
-            scan_days = int(os.getenv("SCAN_DAYS", "7"))
+            scan_days = int(os.getenv("SCAN_DAYS", "2"))
         except ValueError as exc:
             raise ConfigError("SCAN_DAYS must be an integer") from exc
         if not 1 <= scan_days <= 30:

@@ -1,6 +1,6 @@
 # Job Mail Assistant
 
-一个仅供个人使用的轻量求职邮件自动处理工具。每天北京时间 00:37 起由 GitHub Actions 调度，从 QQ 邮箱读取最近 7 天邮件，将新增测评、笔试和面试事项写入飞书多维表格、同步到 iCloud Calendar，并尽量在 08:00 前发送客观早报。GitHub 的定时任务可能排队延迟，因此预留了整个后半夜的交付余量。
+一个仅供个人使用的轻量求职邮件自动处理工具。每天北京时间 00:37 起由 GitHub Actions 调度，通常从 QQ 邮箱读取最近 2 天邮件；若上次成功运行更早，则从上次成功运行时间起回扫。新增测评、笔试和面试事项会写入飞书多维表格、同步到 iCloud Calendar，并尽量在 08:00 前发送客观早报。GitHub 的定时任务可能排队延迟，因此预留了整个后半夜的交付余量。
 
 ## 工作方式
 
@@ -50,7 +50,7 @@ python -m job_mail_assistant retry-calendar
 | `AI_MODEL` | 是 | 实际使用的模型名 |
 | `ICLOUD_CALENDAR_NAME` | 否 | 默认 `秋招` |
 | `FEISHU_TABLE_NAME` | 否 | 默认 `测评&面试` |
-| `SCAN_DAYS` | 否 | 默认 7，允许 1–30 |
+| `SCAN_DAYS` | 否 | 默认 2，允许 1–30；若上次成功运行更早，会自动扩展回扫范围 |
 
 代码、日志、README 和测试 fixture 均不包含真实凭据或真实邮件。
 

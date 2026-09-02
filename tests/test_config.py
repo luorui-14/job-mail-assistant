@@ -37,3 +37,11 @@ def test_environment_values_are_trimmed(monkeypatch):
     assert config.icloud_username == "apple@example.com"
     assert config.icloud_app_password == "apple-password"
     assert config.ai_base_url == "https://ai.example.com/v1"
+
+
+def test_default_scan_window_is_two_days(monkeypatch):
+    for name, value in REQUIRED_ENV.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("SCAN_DAYS", raising=False)
+
+    assert Config.from_env().scan_days == 2

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from math import ceil
 
 from .ai_parser import AIParser
 from .apple_calendar import AppleCalendar
@@ -327,19 +328,16 @@ def retry_calendars(config: Config) -> int:
     return 2 if warnings else 0
 
 
+def _scan_window_days(*, minimum_days: int, last_success: datetime, now: datetime) -> int:
+    elapsed_seconds = max(0.0, (now - last_success).total_seconds())
+    return max(minimum_days, ceil(elapsed_seconds / timedelta(days=1).total_seconds()))
+
+
 def run(config: Config, *, dry_run: bool = False, now: datetime | None = None) -> int:
     run_started = (now or datetime.now(SHANGHAI)).astimezone(SHANGHAI)
     stats = RunStats()
     mailbox = QQMailbox(config.qq_email, config.qq_auth_code)
     ai = AIParser(config.ai_api_key, config.ai_base_url, config.ai_model)
-
-    messages = mailbox.fetch_recent(days=config.scan_days, now=run_started)
-    stats.fetched = len(messages)
-    candidates = [
-        mail for mail in messages if looks_like_recruiting(mail.subject, mail.sender, mail.body)
-    ]
-    stats.candidates = len(candidates)
-    LOGGER.info("Fetched %d emails; recruiting candidates: %d", stats.fetched, stats.candidates)
 
     fatal_errors: list[str] = []
     warnings: list[str] = []
@@ -356,6 +354,21 @@ def run(config: Config, *, dry_run: bool = False, now: datetime | None = None) -
             base_token,
             state_table_id,
             default=run_started - timedelta(days=config.scan_days),
+        )
+        scan_days = _scan_window_days(
+            minimum_days=config.scan_days, last_success=cursor, now=run_started
+        )
+        messages = mailbox.fetch_recent(days=scan_days, now=run_started)
+        stats.fetched = len(messages)
+        candidates = [
+            mail for mail in messages if looks_like_recruiting(mail.subject, mail.sender, mail.body)
+        ]
+        stats.candidates = len(candidates)
+        LOGGER.info(
+            "Fetched %d emails from the last %d days; recruiting candidates: %d",
+            stats.fetched,
+            scan_days,
+            stats.candidates,
         )
         index = RecordIndex(records)
 

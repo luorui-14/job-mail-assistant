@@ -8,6 +8,7 @@ from job_mail_assistant.models import BaseRecord, MailMessage, ParsedEmail, Time
 
 class FakeMailbox:
     reports: list[tuple[str, str]] = []
+    fetch_days: list[int] = []
     message = MailMessage(
         uid="1",
         message_id="same@example.com",
@@ -22,7 +23,8 @@ class FakeMailbox:
     def __init__(self, *_):
         pass
 
-    def fetch_recent(self, **_):
+    def fetch_recent(self, *, days, **_):
+        self.__class__.fetch_days.append(days)
         return [self.message]
 
     def send_report(self, subject, body):
@@ -51,6 +53,7 @@ class FakeAI:
 class FakeFeishu:
     records: list[BaseRecord] = []
     cursor_record = None
+    cursor: datetime | None = None
 
     def __init__(self, *_):
         pass
@@ -74,10 +77,11 @@ class FakeFeishu:
         return [] if table == "state" else list(self.records)
 
     def get_cursor(self, *_, default):
-        return default, self.cursor_record
+        return self.cursor or default, self.cursor_record
 
     def set_cursor(self, *args):
         self.cursor_record = "state-rec"
+        self.cursor = args[-2]
         return self.cursor_record
 
     def create_record(self, _, table, fields):
@@ -129,9 +133,11 @@ def config() -> Config:
 def test_two_runs_do_not_duplicate_record_or_calendar(monkeypatch):
     FakeFeishu.records = []
     FakeFeishu.cursor_record = None
+    FakeFeishu.cursor = None
     FakeCalendar.calls = 0
     FakeCalendar.titles = []
     FakeMailbox.reports = []
+    FakeMailbox.fetch_days = []
     monkeypatch.setattr("job_mail_assistant.app.QQMailbox", FakeMailbox)
     monkeypatch.setattr("job_mail_assistant.app.AIParser", FakeAI)
     monkeypatch.setattr("job_mail_assistant.app.FeishuClient", FakeFeishu)
@@ -143,6 +149,24 @@ def test_two_runs_do_not_duplicate_record_or_calendar(monkeypatch):
     assert len(FakeFeishu.records) == 1
     assert FakeCalendar.calls == 1
     assert len(FakeMailbox.reports) == 2
+    assert FakeMailbox.fetch_days == [2, 2]
+
+
+def test_missed_runs_expand_the_mail_scan_window(monkeypatch):
+    FakeFeishu.records = []
+    FakeFeishu.cursor_record = "state-rec"
+    FakeFeishu.cursor = datetime(2026, 8, 24, 8, tzinfo=SHANGHAI)
+    FakeCalendar.calls = 0
+    FakeCalendar.titles = []
+    FakeMailbox.reports = []
+    FakeMailbox.fetch_days = []
+    monkeypatch.setattr("job_mail_assistant.app.QQMailbox", FakeMailbox)
+    monkeypatch.setattr("job_mail_assistant.app.AIParser", FakeAI)
+    monkeypatch.setattr("job_mail_assistant.app.FeishuClient", FakeFeishu)
+    monkeypatch.setattr("job_mail_assistant.app.AppleCalendar", FakeCalendar)
+
+    assert run(config(), now=datetime(2026, 8, 28, 8, tzinfo=SHANGHAI)) == 0
+    assert FakeMailbox.fetch_days == [4]
 
 
 def test_calendar_retry_does_not_read_mail_or_send_report(monkeypatch):

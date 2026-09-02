@@ -51,7 +51,8 @@ def main() -> int:
                 f"【秋招早报】{date_text} 运行失败",
                 "Job Mail Assistant 本次运行失败。\n"
                 "失败阶段异常类型：FeishuError\n"
-                "未确认完成的邮件会在下次 7 天回扫中重试，请检查 GitHub Actions 日志。\n",
+                "未确认完成的邮件会在下次运行时从上次成功运行起回扫，"
+                "请检查 GitHub Actions 日志。\n",
             )
         except Exception as report_exc:
             logging.error("Failure report could not be sent: %s", type(report_exc).__name__)
@@ -66,7 +67,8 @@ def main() -> int:
                 f"【秋招早报】{date_text} 运行失败",
                 "Job Mail Assistant 本次运行失败。\n"
                 f"失败阶段异常类型：{type(exc).__name__}\n"
-                "未确认完成的邮件会在下次 7 天回扫中重试，请检查 GitHub Actions 日志。\n",
+                "未确认完成的邮件会在下次运行时从上次成功运行起回扫，"
+                "请检查 GitHub Actions 日志。\n",
             )
         except Exception as report_exc:
             logging.error("Failure report could not be sent: %s", type(report_exc).__name__)
