@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 from icalendar import Calendar
 
-from job_mail_assistant.app import RecordIndex, record_fields
+from job_mail_assistant.app import RecordIndex, _is_trackable_action, record_fields
 from job_mail_assistant.apple_calendar import AppleCalendar, build_ical
 from job_mail_assistant.deadlines import SHANGHAI
 from job_mail_assistant.models import (
@@ -83,6 +83,71 @@ def test_thread_reference_updates_existing_record() -> None:
     )
     assert not match.duplicate
     assert match.record is record
+
+
+def test_exact_event_matches_when_position_is_missing() -> None:
+    start = datetime(2026, 8, 30, 10, tzinfo=SHANGHAI)
+    record = BaseRecord(
+        "rec1",
+        {
+            "公司": "OPPO",
+            "岗位": "",
+            "类型": "AI面试",
+            "截止/面试时间": int(start.timestamp() * 1000),
+        },
+    )
+    message = mail("reminder@example.com")
+    extraction = parsed()
+    extraction.company = "OPPO"
+    extraction.position = None
+    extraction.item_type = "AI面试"
+
+    match = RecordIndex([record]).match(
+        message, extraction, ResolvedTime(start, None, False, False)
+    )
+
+    assert not match.duplicate
+    assert match.record is record
+
+
+def test_human_interview_deadline_is_not_a_trackable_arrangement() -> None:
+    message = mail()
+    message = MailMessage(
+        **{
+            **message.__dict__,
+            "subject": "校园招聘-面试邀请",
+            "body": "请在截止时间前确认是否参加。",
+        }
+    )
+    extraction = parsed()
+    extraction.item_type = "其他面试"
+    extraction.time_type = "deadline"
+
+    assert not _is_trackable_action(
+        message, extraction, ResolvedTime(None, None, False, False)
+    )
+
+
+def test_human_interview_fixed_time_is_trackable() -> None:
+    message = mail()
+    message = MailMessage(
+        **{
+            **message.__dict__,
+            "subject": "校园招聘-面试安排",
+            "body": "面试时间：2026-09-10 10:00。",
+        }
+    )
+    extraction = parsed()
+    extraction.item_type = "其他面试"
+    extraction.time_type = "fixed"
+
+    assert _is_trackable_action(
+        message,
+        extraction,
+        ResolvedTime(
+            datetime(2026, 9, 10, 10, tzinfo=SHANGHAI), None, False, False
+        ),
+    )
 
 
 def test_ical_has_24_hour_display_alarm() -> None:

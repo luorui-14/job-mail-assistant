@@ -43,6 +43,23 @@ ACTION_TERMS = (
 REPORT_PREFIX = "【秋招早报】"
 URL_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 INTERNALDATE_RE = re.compile(rb'INTERNALDATE "([^"]+)"')
+INTERVIEW_SCHEDULING_TERMS = (
+    "预约面试时间",
+    "预约截止时间",
+    "面试时间选择",
+    "选择面试时间",
+    "可选面试时间",
+    "前往预约",
+)
+INTERVIEW_FEEDBACK_TERMS = (
+    "反馈面试体验",
+    "面试体验反馈",
+    "面试体验问卷",
+    "面试体验满意度",
+    "面试满意度",
+    "面试体验优化",
+    "面试体验调研",
+)
 
 
 def decode_mime(value: str | None) -> str:
@@ -158,8 +175,26 @@ def filter_action_urls(urls: list[str]) -> list[str]:
     return result[:30]
 
 
+def is_non_action_recruiting_notice(subject: str, body: str) -> bool:
+    """Return whether a recruiting mail is outside the tracked action scope."""
+    sample = f"{subject}\n{body[:10000]}".casefold()
+    if "面试" in sample:
+        if any(term in sample for term in INTERVIEW_SCHEDULING_TERMS):
+            return True
+        if any(term in sample for term in INTERVIEW_FEEDBACK_TERMS):
+            return True
+        if re.search(r"(?:点击|进入|前往).{0,20}(?:选择|预约).{0,10}面试时间", sample):
+            return True
+        if re.search(r"面试时间.{0,15}(?:任选|可选|选择一个时间段)", sample):
+            return True
+    event_terms = ("宣讲会", "招聘活动", "专场活动")
+    return any(term in sample for term in event_terms) and "报名" in sample
+
+
 def looks_like_recruiting(subject: str, sender: str, body: str) -> bool:
     if subject.startswith(REPORT_PREFIX):
+        return False
+    if is_non_action_recruiting_notice(subject, body):
         return False
     sample = f"{subject}\n{sender}\n{body[:5000]}".lower()
     return any(term.lower() in sample for term in ACTION_TERMS)

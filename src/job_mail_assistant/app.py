@@ -17,12 +17,26 @@ from .feishu import (
     datetime_to_millis,
     value_to_datetime,
 )
-from .mailbox import QQMailbox, looks_like_recruiting, normalize_message_id
+from .mailbox import (
+    QQMailbox,
+    is_non_action_recruiting_notice,
+    looks_like_recruiting,
+    normalize_message_id,
+)
 from .models import BaseRecord, MailMessage, ParsedEmail, ResolvedTime, RunStats
 from .report import render_report
 
 LOGGER = logging.getLogger(__name__)
 QQ_MAIL_URL = "https://mail.qq.com/"
+HUMAN_INTERVIEW_TYPES = {
+    "群面",
+    "一面",
+    "二面",
+    "三面",
+    "终面",
+    "HR面",
+    "其他面试",
+}
 
 
 def _ids(record: BaseRecord) -> set[str]:
@@ -36,13 +50,26 @@ def _ids(record: BaseRecord) -> set[str]:
 def _signature(
     company: str | None, position: str | None, item_type: str | None, start: datetime | None
 ) -> tuple[str, str, str, int] | None:
-    if not all([company, position, item_type, start]):
+    if not all([company, item_type, start]):
         return None
     return (
         (company or "").strip().casefold(),
         (position or "").strip().casefold(),
         item_type or "",
         int((start or datetime.now(SHANGHAI)).timestamp() // 60),
+    )
+
+
+def _is_trackable_action(
+    mail: MailMessage, parsed: ParsedEmail, resolved: ResolvedTime
+) -> bool:
+    if parsed.classification != "action":
+        return False
+    if is_non_action_recruiting_notice(mail.subject, mail.body):
+        return False
+    return not (
+        parsed.item_type in HUMAN_INTERVIEW_TYPES
+        and (parsed.time_type != "fixed" or resolved.start is None)
     )
 
 
@@ -395,9 +422,11 @@ def run(config: Config, *, dry_run: bool = False, now: datetime | None = None) -
                     progress_items.append(label or mail.subject)
                     stats.progress_items += 1
                 continue
+            resolved = resolve_time(parsed, mail.received_at)
+            if not _is_trackable_action(mail, parsed, resolved):
+                continue
 
             stats.relevant += 1
-            resolved = resolve_time(parsed, mail.received_at)
             match = index.match(mail, parsed, resolved)
             if match.duplicate:
                 stats.duplicates += 1

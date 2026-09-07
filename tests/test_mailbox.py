@@ -4,6 +4,7 @@ from email.message import EmailMessage
 from job_mail_assistant.deadlines import SHANGHAI
 from job_mail_assistant.mailbox import (
     filter_action_urls,
+    is_non_action_recruiting_notice,
     looks_like_recruiting,
     normalize_message_id,
     parse_mail,
@@ -22,6 +23,38 @@ def test_ordinary_mail_does_not_enter() -> None:
 
 def test_report_mail_is_excluded() -> None:
     assert not looks_like_recruiting("【秋招早报】2026-08-28 测评", "me@qq.com", "测评")
+
+
+def test_interview_scheduling_invitation_is_excluded() -> None:
+    subject = "校园招聘-面试邀请"
+    body = "请点击按钮选择面试时间。预约截止时间为明天中午。"
+
+    assert is_non_action_recruiting_notice(subject, body)
+    assert not looks_like_recruiting(subject, "recruiting@example.com", body)
+
+
+def test_interview_feedback_survey_is_excluded() -> None:
+    subject = "邀请反馈面试体验"
+    body = "请填写问卷，反馈内容仅用于面试体验优化。"
+
+    assert is_non_action_recruiting_notice(subject, body)
+    assert not looks_like_recruiting(subject, "recruiting@example.com", body)
+
+
+def test_confirmed_interview_arrangement_is_included() -> None:
+    subject = "校园招聘-面试安排"
+    body = "面试时间：2026-09-10 10:00，面试形式：视频面试。"
+
+    assert not is_non_action_recruiting_notice(subject, body)
+    assert looks_like_recruiting(subject, "recruiting@example.com", body)
+
+
+def test_recruiting_event_registration_is_excluded() -> None:
+    subject = "产品团队线下专场活动｜报名已开启"
+    body = "欢迎报名参加招聘活动。"
+
+    assert is_non_action_recruiting_notice(subject, body)
+    assert not looks_like_recruiting(subject, "recruiting@example.com", body)
 
 
 def test_url_filter_removes_tracking_and_images() -> None:
