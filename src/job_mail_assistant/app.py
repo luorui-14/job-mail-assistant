@@ -22,6 +22,7 @@ from .models import BaseRecord, MailMessage, ParsedEmail, ResolvedTime, RunStats
 from .report import render_report
 
 LOGGER = logging.getLogger(__name__)
+QQ_MAIL_URL = "https://mail.qq.com/"
 
 
 def _ids(record: BaseRecord) -> set[str]:
@@ -158,6 +159,7 @@ def record_fields(
         "Message-ID": _merge_message_ids(existing, mail),
         "邮件指纹": mail.fingerprint,
         "原邮件主题": mail.subject,
+        "原邮件": {"text": "打开 QQ 邮箱核查", "link": QQ_MAIL_URL},
         "原始时间描述": parsed.original_time_text or "",
         "时间为推算": resolved.inferred,
         "需要人工确认": needs_confirmation,

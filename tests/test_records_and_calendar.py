@@ -153,6 +153,20 @@ def test_url_field_uses_feishu_hyperlink_shape() -> None:
     }
 
 
+def test_original_mail_field_opens_qq_mail() -> None:
+    fields = record_fields(
+        mail(),
+        parsed(),
+        ResolvedTime(None, None, False, True),
+        now=datetime(2026, 8, 28, 10, tzinfo=SHANGHAI),
+    )
+
+    assert fields["原邮件"] == {
+        "text": "打开 QQ 邮箱核查",
+        "link": "https://mail.qq.com/",
+    }
+
+
 def test_base_record_text_reads_hyperlink_url() -> None:
     record = BaseRecord(
         "rec-1",
