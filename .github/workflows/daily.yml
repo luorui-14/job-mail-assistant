@@ -17,6 +17,11 @@ on:
         required: false
         default: false
         type: boolean
+      calendar_delete_record_ids:
+        description: "Delete exact iCloud events for comma-separated Feishu record IDs"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -54,7 +59,7 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install --no-deps .
       - name: Run (live)
-        if: github.event_name != 'workflow_dispatch' || (inputs.dry_run != true && inputs.calendar_only != true)
+        if: github.event_name != 'workflow_dispatch' || (inputs.dry_run != true && inputs.calendar_only != true && inputs.calendar_delete_record_ids == '')
         run: python -m job_mail_assistant run
       - name: Run (dry-run)
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run == true
@@ -62,3 +67,6 @@ jobs:
       - name: Retry Calendar only
         if: github.event_name == 'workflow_dispatch' && inputs.calendar_only == true
         run: python -m job_mail_assistant retry-calendar
+      - name: Delete selected Calendar events
+        if: github.event_name == 'workflow_dispatch' && inputs.calendar_delete_record_ids != ''
+        run: python -m job_mail_assistant delete-calendar --record-ids "${{ inputs.calendar_delete_record_ids }}"

@@ -92,3 +92,7 @@ class AppleCalendar:
         # PUT is an idempotent upsert and safely overwrites a previous retry.
         self.calendar.save_event(data)
         return "created"
+
+    def delete_event(self, uid: str) -> None:
+        """Find and delete the exact iCloud event by its deterministic UID."""
+        self.calendar.get_event_by_uid(uid).delete()

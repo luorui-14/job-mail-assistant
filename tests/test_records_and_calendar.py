@@ -2,8 +2,14 @@ from datetime import datetime, timedelta
 
 from icalendar import Calendar
 
-from job_mail_assistant.app import RecordIndex, _is_trackable_action, record_fields
+from job_mail_assistant.app import (
+    RecordIndex,
+    _is_trackable_action,
+    delete_calendar_events,
+    record_fields,
+)
 from job_mail_assistant.apple_calendar import AppleCalendar, build_ical
+from job_mail_assistant.config import Config
 from job_mail_assistant.deadlines import SHANGHAI
 from job_mail_assistant.models import (
     BaseRecord,
@@ -199,6 +205,43 @@ def test_icloud_upsert_uses_deterministic_put_without_uid_report() -> None:
     assert str(event["UID"]) == "jma-rec1@job-mail-assistant"
 
 
+def test_delete_calendar_events_uses_record_derived_uids(monkeypatch) -> None:
+    deleted: list[str] = []
+
+    class FakeCalendar:
+        def __init__(self, *_: object) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            pass
+
+        def delete_event(self, uid: str) -> None:
+            deleted.append(uid)
+
+    monkeypatch.setattr("job_mail_assistant.app.AppleCalendar", FakeCalendar)
+    config = Config(
+        qq_email="me@example.com",
+        qq_auth_code="secret",
+        feishu_app_id="app",
+        feishu_app_secret="secret",
+        feishu_wiki_url="https://example.feishu.cn/wiki/token",
+        icloud_username="me@icloud.com",
+        icloud_app_password="secret",
+        ai_api_key="secret",
+        ai_base_url="https://ai.example.com/v1",
+        ai_model="model",
+    )
+
+    assert delete_calendar_events(config, ["recOne", "recOne", "recTwo2"]) == 0
+    assert deleted == [
+        "jma-recOne@job-mail-assistant",
+        "jma-recTwo2@job-mail-assistant",
+    ]
+
+
 def test_url_field_uses_feishu_hyperlink_shape() -> None:
     message = mail()
     message.urls.append("https://example.com/assessment")
@@ -218,7 +261,7 @@ def test_url_field_uses_feishu_hyperlink_shape() -> None:
     }
 
 
-def test_original_mail_field_opens_qq_mail() -> None:
+def test_record_does_not_write_misleading_qq_mail_homepage_link() -> None:
     fields = record_fields(
         mail(),
         parsed(),
@@ -226,10 +269,7 @@ def test_original_mail_field_opens_qq_mail() -> None:
         now=datetime(2026, 8, 28, 10, tzinfo=SHANGHAI),
     )
 
-    assert fields["原邮件"] == {
-        "text": "打开 QQ 邮箱核查",
-        "link": "https://mail.qq.com/",
-    }
+    assert "原邮件" not in fields
 
 
 def test_base_record_text_reads_hyperlink_url() -> None:

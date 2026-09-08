@@ -5,7 +5,7 @@ import logging
 import sys
 from datetime import datetime
 
-from .app import retry_calendars, run
+from .app import delete_calendar_events, retry_calendars, run
 from .config import Config, ConfigError
 from .deadlines import SHANGHAI
 from .feishu import FeishuError
@@ -25,6 +25,15 @@ def build_parser() -> argparse.ArgumentParser:
         "retry-calendar",
         help="retry pending/failed iCloud events without reading mail or sending a report",
     )
+    delete_parser = subparsers.add_parser(
+        "delete-calendar",
+        help="delete exact record-derived iCloud events without touching Base or mail",
+    )
+    delete_parser.add_argument(
+        "--record-ids",
+        required=True,
+        help="comma-separated Feishu record IDs",
+    )
     return parser
 
 
@@ -33,8 +42,12 @@ def main() -> int:
     args = build_parser().parse_args()
     dry_run = getattr(args, "dry_run", False)
     calendar_only = args.command == "retry-calendar"
+    calendar_delete = args.command == "delete-calendar"
     try:
         config = Config.from_env()
+        if calendar_delete:
+            record_ids = [item.strip() for item in args.record_ids.split(",") if item.strip()]
+            return delete_calendar_events(config, record_ids)
         if calendar_only:
             return retry_calendars(config)
         return run(config, dry_run=dry_run)
@@ -43,7 +56,7 @@ def main() -> int:
         return 2
     except FeishuError as exc:
         logging.error("Run failed: %s", exc)
-        if dry_run or calendar_only:
+        if dry_run or calendar_only or calendar_delete:
             return 1
         try:
             date_text = datetime.now(SHANGHAI).strftime("%Y-%m-%d")
@@ -59,7 +72,7 @@ def main() -> int:
         return 1
     except Exception as exc:
         logging.error("Run failed: %s", type(exc).__name__)
-        if dry_run or calendar_only:
+        if dry_run or calendar_only or calendar_delete:
             return 1
         try:
             date_text = datetime.now(SHANGHAI).strftime("%Y-%m-%d")

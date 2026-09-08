@@ -8,6 +8,15 @@ def test_cli_dry_run_flag() -> None:
     assert args.dry_run is True
 
 
+def test_cli_calendar_delete_record_ids() -> None:
+    args = build_parser().parse_args(
+        ["delete-calendar", "--record-ids", "recOne,recTwo"]
+    )
+
+    assert args.command == "delete-calendar"
+    assert args.record_ids == "recOne,recTwo"
+
+
 def test_dry_run_failure_does_not_send_email(monkeypatch) -> None:
     sent = []
 

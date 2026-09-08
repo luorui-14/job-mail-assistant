@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from math import ceil
@@ -27,7 +28,6 @@ from .models import BaseRecord, MailMessage, ParsedEmail, ResolvedTime, RunStats
 from .report import render_report
 
 LOGGER = logging.getLogger(__name__)
-QQ_MAIL_URL = "https://mail.qq.com/"
 HUMAN_INTERVIEW_TYPES = {
     "群面",
     "一面",
@@ -37,6 +37,7 @@ HUMAN_INTERVIEW_TYPES = {
     "HR面",
     "其他面试",
 }
+RECORD_ID_RE = re.compile(r"rec[A-Za-z0-9]+")
 
 
 def _ids(record: BaseRecord) -> set[str]:
@@ -186,7 +187,6 @@ def record_fields(
         "Message-ID": _merge_message_ids(existing, mail),
         "邮件指纹": mail.fingerprint,
         "原邮件主题": mail.subject,
-        "原邮件": {"text": "打开 QQ 邮箱核查", "link": QQ_MAIL_URL},
         "原始时间描述": parsed.original_time_text or "",
         "时间为推算": resolved.inferred,
         "需要人工确认": needs_confirmation,
@@ -355,6 +355,22 @@ def retry_calendars(config: Config) -> int:
         len(warnings),
     )
     return 2 if warnings else 0
+
+
+def delete_calendar_events(config: Config, record_ids: list[str]) -> int:
+    """Delete exact record-derived Calendar events without touching Base or mail."""
+    unique_ids = list(dict.fromkeys(record_ids))
+    if not unique_ids or any(RECORD_ID_RE.fullmatch(item) is None for item in unique_ids):
+        raise ValueError("Calendar cleanup requires valid Feishu record IDs")
+    with AppleCalendar(
+        config.icloud_username,
+        config.icloud_app_password,
+        config.icloud_calendar_name,
+    ) as calendar:
+        for record_id in unique_ids:
+            calendar.delete_event(f"jma-{record_id}@job-mail-assistant")
+    LOGGER.info("Deleted %d Calendar events", len(unique_ids))
+    return 0
 
 
 def _scan_window_days(*, minimum_days: int, last_success: datetime, now: datetime) -> int:
