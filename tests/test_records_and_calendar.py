@@ -205,6 +205,40 @@ def test_icloud_upsert_uses_deterministic_put_without_uid_report() -> None:
     assert str(event["UID"]) == "jma-rec1@job-mail-assistant"
 
 
+def test_icloud_delete_uses_deterministic_resource_without_uid_report(monkeypatch) -> None:
+    class FakeUrl:
+        def join(self, resource_name: str) -> str:
+            assert resource_name == "jma-rec1%40job-mail-assistant.ics"
+            return f"https://cal.example/{resource_name}"
+
+    class FakeRemoteCalendar:
+        url = FakeUrl()
+
+        def get_event_by_uid(self, _: str) -> None:
+            raise AssertionError("iCloud UID REPORT must not be used")
+
+    deleted: list[str] = []
+
+    class FakeEvent:
+        def __init__(self, *, client: object, url: str, parent: object) -> None:
+            assert client == "client"
+            assert parent is remote
+            self.url = url
+
+        def delete(self) -> None:
+            deleted.append(self.url)
+
+    remote = FakeRemoteCalendar()
+    calendar = AppleCalendar.__new__(AppleCalendar)
+    calendar.client = "client"
+    calendar.calendar = remote
+
+    monkeypatch.setattr("job_mail_assistant.apple_calendar.caldav.Event", FakeEvent)
+    calendar.delete_event("jma-rec1@job-mail-assistant")
+
+    assert deleted == ["https://cal.example/jma-rec1%40job-mail-assistant.ics"]
+
+
 def test_delete_calendar_events_uses_record_derived_uids(monkeypatch) -> None:
     deleted: list[str] = []
 

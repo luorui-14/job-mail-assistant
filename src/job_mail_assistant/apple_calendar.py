@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from urllib.parse import quote
 
 import caldav
 from icalendar import Alarm, Calendar, Event
@@ -94,5 +95,11 @@ class AppleCalendar:
         return "created"
 
     def delete_event(self, uid: str) -> None:
-        """Find and delete the exact iCloud event by its deterministic UID."""
-        self.calendar.get_event_by_uid(uid).delete()
+        """Delete the deterministic iCloud resource without a UID REPORT query."""
+        resource_name = quote(uid.replace("/", "%2F")) + ".ics"
+        event = caldav.Event(
+            client=self.client,
+            url=self.calendar.url.join(resource_name),
+            parent=self.calendar,
+        )
+        event.delete()
