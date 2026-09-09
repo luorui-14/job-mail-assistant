@@ -78,6 +78,22 @@ def test_incomplete_link_record_is_reprocessed_for_repair() -> None:
     assert match.record is record
 
 
+def test_relative_anchor_false_positive_record_is_reprocessed_for_repair() -> None:
+    record = BaseRecord(
+        "rec1",
+        {
+            "Message-ID": "mail@example.com",
+            "截止/面试时间": int(
+                datetime(2026, 9, 15, 18, 14, tzinfo=SHANGHAI).timestamp() * 1000
+            ),
+            "链接": "https://exam.example.com/start",
+            "确认说明": "无法确定链接有效期截止日期，仅知有效期为7天，未给出起始日期",
+        },
+    )
+
+    assert not RecordIndex([record]).is_exact_duplicate(mail())
+
+
 def test_thread_reference_updates_existing_record() -> None:
     record = BaseRecord("rec1", {"Message-ID": "parent@example.com"})
     child = mail("child@example.com")

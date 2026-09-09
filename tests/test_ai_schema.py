@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from job_mail_assistant.ai_parser import AIParser, _strict_json_schema
-from job_mail_assistant.deadlines import SHANGHAI
+from job_mail_assistant.deadlines import SHANGHAI, resolve_time
 from job_mail_assistant.models import MailMessage, ParsedEmail
 
 
@@ -85,3 +85,78 @@ def test_missing_position_does_not_require_confirmation(monkeypatch) -> None:
     assert parsed.position is None
     assert not parsed.needs_confirmation
     assert parsed.confirmation_reason is None
+
+
+def test_relative_duration_uses_mail_received_time_as_implicit_anchor(monkeypatch) -> None:
+    parser = AIParser("key", "https://ai.example.com/v1", "model")
+    content = """{
+        "classification": "action",
+        "company": "TCL实业",
+        "position": null,
+        "item_type": "AI面试",
+        "time_type": "deadline",
+        "original_time_text": "链接有效期：7天",
+        "time_expression": {"kind": "relative", "year": null, "month": null,
+            "day": null, "hour": null, "minute": null, "relative_value": 7,
+            "relative_unit": "day", "week_offset": null, "weekday": null},
+        "end_time_expression": null,
+        "action_url_index": 0,
+        "needs_confirmation": true,
+        "confirmation_reason": "无法确定链接有效期截止日期，仅知有效期为7天，未给出起始日期",
+        "progress_summary": null
+    }"""
+    monkeypatch.setattr(parser, "_request", lambda *_: content)
+    mail = MailMessage(
+        uid="1",
+        message_id="tcl@example.com",
+        fingerprint="f" * 64,
+        subject="AI面试邀请",
+        sender="hr@example.com",
+        received_at=datetime(2026, 9, 8, 18, 14, tzinfo=SHANGHAI),
+        body="链接有效期：7天",
+        urls=["https://assessment.example.com/start"],
+    )
+
+    parsed = parser.parse(mail)
+    resolved = resolve_time(parsed, mail.received_at)
+
+    assert not parsed.needs_confirmation
+    assert parsed.confirmation_reason is None
+    assert resolved.start == datetime(2026, 9, 15, 18, 14, tzinfo=SHANGHAI)
+    assert not resolved.needs_confirmation
+
+
+def test_relative_anchor_cleanup_preserves_other_material_uncertainty(monkeypatch) -> None:
+    parser = AIParser("key", "https://ai.example.com/v1", "model")
+    content = """{
+        "classification": "action",
+        "company": "TCL实业",
+        "position": null,
+        "item_type": "AI面试",
+        "time_type": "deadline",
+        "original_time_text": "链接有效期：7天",
+        "time_expression": {"kind": "relative", "year": null, "month": null,
+            "day": null, "hour": null, "minute": null, "relative_value": 7,
+            "relative_unit": "day", "week_offset": null, "weekday": null},
+        "end_time_expression": null,
+        "action_url_index": null,
+        "needs_confirmation": true,
+        "confirmation_reason": "未给出起始日期，且候选链接存在冲突",
+        "progress_summary": null
+    }"""
+    monkeypatch.setattr(parser, "_request", lambda *_: content)
+    mail = MailMessage(
+        uid="1",
+        message_id="tcl@example.com",
+        fingerprint="f" * 64,
+        subject="AI面试邀请",
+        sender="hr@example.com",
+        received_at=datetime(2026, 9, 8, 18, 14, tzinfo=SHANGHAI),
+        body="链接有效期：7天",
+        urls=["https://one.example.com", "https://two.example.com"],
+    )
+
+    parsed = parser.parse(mail)
+
+    assert parsed.needs_confirmation
+    assert parsed.confirmation_reason == "未给出起始日期，且候选链接存在冲突"

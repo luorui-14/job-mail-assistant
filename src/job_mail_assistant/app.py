@@ -9,7 +9,7 @@ from math import ceil
 from .ai_parser import AIParser
 from .apple_calendar import AppleCalendar
 from .config import Config
-from .confirmations import normalize_confirmation
+from .confirmations import is_missing_relative_anchor_only_reason, normalize_confirmation
 from .deadlines import SHANGHAI, resolve_time
 from .feishu import (
     STATE_TABLE_NAME,
@@ -79,8 +79,10 @@ def _is_repairable(record: BaseRecord) -> bool:
     reason = record.text("确认说明").casefold()
     missing_time = value_to_datetime(record.fields.get("截止/面试时间")) is None
     missing_link = record.text("链接") == ""
-    return (missing_time and "缺少月或日" in reason) or (
-        missing_link and any(term in reason for term in ("链接", "入口", "url"))
+    return (
+        (missing_time and "缺少月或日" in reason)
+        or (missing_link and any(term in reason for term in ("链接", "入口", "url")))
+        or is_missing_relative_anchor_only_reason(reason)
     )
 
 

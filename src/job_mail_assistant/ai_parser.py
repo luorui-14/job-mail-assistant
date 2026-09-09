@@ -6,7 +6,7 @@ from typing import Any
 
 from openai import APIStatusError, BadRequestError, OpenAI
 
-from .confirmations import normalize_confirmation
+from .confirmations import is_missing_relative_anchor_only_reason, normalize_confirmation
 from .models import MailMessage, ParsedEmail
 
 SYSTEM_PROMPT = """你是求职邮件信息提取器。只输出符合 JSON Schema 的对象。
@@ -23,6 +23,8 @@ SYSTEM_PROMPT = """你是求职邮件信息提取器。只输出符合 JSON Sche
 1. 不做日期加减，不根据相对时间生成最终日期。只提取 time_expression 的组成部分。
 2. absolute 提取邮件明确写出的年/月/日/时/分；未写的字段必须为 null。
 3. relative 提取 value 和 hour/day/workday；“N天内”是 day，“N个工作日内”是 workday。
+   relative 一律以给定的邮件接收时间为起算点；正文未另写起始日期不构成不确定性，不得因此
+   设置 needs_confirmation=true。
 4. weekday 中本周 week_offset=0、下周=1，星期一到星期日为 1..7。
 5. 无法可靠确定时间用 ambiguous 或 none，并 needs_confirmation=true。
 6. time_type：截止时间为 deadline，固定发生时间为 fixed，无时间为 none。
@@ -143,6 +145,12 @@ class AIParser:
             parsed.needs_confirmation, parsed.confirmation_reason
         )
         parsed.confirmation_reason = normalized_reason or None
+        if (
+            parsed.time_expression.kind == "relative"
+            and is_missing_relative_anchor_only_reason(parsed.confirmation_reason)
+        ):
+            parsed.needs_confirmation = False
+            parsed.confirmation_reason = None
         if parsed.action_url_index is not None and parsed.action_url_index >= len(mail.urls):
             parsed.action_url_index = None
             parsed.needs_confirmation = True
