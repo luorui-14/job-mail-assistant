@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from job_mail_assistant.app import _is_candidate_in_window, retry_calendars, run
+from job_mail_assistant.app import retry_calendars, run
 from job_mail_assistant.config import Config
 from job_mail_assistant.deadlines import SHANGHAI
 from job_mail_assistant.models import BaseRecord, MailMessage, ParsedEmail, TimeExpression
@@ -54,7 +54,6 @@ class FakeFeishu:
     records: list[BaseRecord] = []
     cursor_record = None
     cursor: datetime | None = None
-    schema_version: str | None = None
 
     def __init__(self, *_):
         pass
@@ -78,12 +77,11 @@ class FakeFeishu:
         return [] if table == "state" else list(self.records)
 
     def get_cursor(self, *_, default):
-        return self.cursor or default, self.cursor_record, self.schema_version
+        return self.cursor or default, self.cursor_record
 
     def set_cursor(self, *args):
         self.__class__.cursor_record = "state-rec"
         self.__class__.cursor = args[-2]
-        self.__class__.schema_version = "2"
         return self.__class__.cursor_record
 
     def create_record(self, _, table, fields):
@@ -132,43 +130,10 @@ def config() -> Config:
     )
 
 
-def test_schema_backfill_only_includes_old_application_deadlines() -> None:
-    cutoff = datetime(2026, 9, 14, 8, tzinfo=SHANGHAI)
-    old_received = datetime(2026, 9, 1, 8, tzinfo=SHANGHAI)
-    old_assessment = MailMessage(
-        **{
-            **FakeMailbox.message.__dict__,
-            "received_at": old_received,
-            "subject": "在线测评邀请",
-            "body": "请完成在线测评",
-        }
-    )
-    old_application = MailMessage(
-        **{
-            **FakeMailbox.message.__dict__,
-            "received_at": old_received,
-            "subject": "校园招聘岗位推荐",
-            "body": "岗位申请截止时间：2026-10-10，立即投递。",
-        }
-    )
-
-    assert not _is_candidate_in_window(
-        old_assessment,
-        regular_cutoff=cutoff,
-        application_backfill=True,
-    )
-    assert _is_candidate_in_window(
-        old_application,
-        regular_cutoff=cutoff,
-        application_backfill=True,
-    )
-
-
 def test_two_runs_do_not_duplicate_record_or_calendar(monkeypatch):
     FakeFeishu.records = []
     FakeFeishu.cursor_record = None
     FakeFeishu.cursor = None
-    FakeFeishu.schema_version = None
     FakeCalendar.calls = 0
     FakeCalendar.titles = []
     FakeMailbox.reports = []
@@ -184,14 +149,13 @@ def test_two_runs_do_not_duplicate_record_or_calendar(monkeypatch):
     assert len(FakeFeishu.records) == 1
     assert FakeCalendar.calls == 1
     assert len(FakeMailbox.reports) == 2
-    assert FakeMailbox.fetch_days == [30, 2]
+    assert FakeMailbox.fetch_days == [2, 2]
 
 
 def test_missed_runs_expand_the_mail_scan_window(monkeypatch):
     FakeFeishu.records = []
     FakeFeishu.cursor_record = "state-rec"
     FakeFeishu.cursor = datetime(2026, 8, 24, 8, tzinfo=SHANGHAI)
-    FakeFeishu.schema_version = "2"
     FakeCalendar.calls = 0
     FakeCalendar.titles = []
     FakeMailbox.reports = []

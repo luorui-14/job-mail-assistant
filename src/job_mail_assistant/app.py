@@ -12,7 +12,6 @@ from .config import Config
 from .confirmations import is_missing_relative_anchor_only_reason, normalize_confirmation
 from .deadlines import SHANGHAI, resolve_time
 from .feishu import (
-    STATE_SCHEMA_VERSION,
     STATE_TABLE_NAME,
     FeishuClient,
     FeishuError,
@@ -21,7 +20,6 @@ from .feishu import (
 )
 from .mailbox import (
     QQMailbox,
-    is_application_deadline_notice,
     is_non_action_recruiting_notice,
     looks_like_recruiting,
     normalize_message_id,
@@ -40,7 +38,6 @@ HUMAN_INTERVIEW_TYPES = {
     "其他面试",
 }
 RECORD_ID_RE = re.compile(r"rec[A-Za-z0-9]+")
-APPLICATION_DEADLINE_BACKFILL_DAYS = 30
 
 
 def _ids(record: BaseRecord) -> set[str]:
@@ -383,20 +380,6 @@ def _scan_window_days(*, minimum_days: int, last_success: datetime, now: datetim
     return max(minimum_days, ceil(elapsed_seconds / timedelta(days=1).total_seconds()))
 
 
-def _is_candidate_in_window(
-    mail: MailMessage,
-    *,
-    regular_cutoff: datetime,
-    application_backfill: bool,
-) -> bool:
-    if not looks_like_recruiting(mail.subject, mail.sender, mail.body):
-        return False
-    return mail.received_at >= regular_cutoff or (
-        application_backfill
-        and is_application_deadline_notice(mail.subject, mail.sender, mail.body)
-    )
-
-
 def run(config: Config, *, dry_run: bool = False, now: datetime | None = None) -> int:
     run_started = (now or datetime.now(SHANGHAI)).astimezone(SHANGHAI)
     stats = RunStats()
@@ -414,29 +397,18 @@ def run(config: Config, *, dry_run: bool = False, now: datetime | None = None) -
         state_table_id = feishu.find_table(base_token, STATE_TABLE_NAME)
         feishu.validate_schema(base_token, main_table_id, state_table_id)
         records = feishu.list_records(base_token, main_table_id)
-        cursor, cursor_record_id, state_schema_version = feishu.get_cursor(
+        cursor, cursor_record_id = feishu.get_cursor(
             base_token,
             state_table_id,
             default=run_started - timedelta(days=config.scan_days),
         )
-        regular_scan_days = _scan_window_days(
+        scan_days = _scan_window_days(
             minimum_days=config.scan_days, last_success=cursor, now=run_started
         )
-        application_backfill = state_schema_version != STATE_SCHEMA_VERSION
-        scan_days = regular_scan_days
-        if application_backfill:
-            scan_days = max(scan_days, APPLICATION_DEADLINE_BACKFILL_DAYS)
         messages = mailbox.fetch_recent(days=scan_days, now=run_started)
         stats.fetched = len(messages)
-        regular_cutoff = run_started - timedelta(days=regular_scan_days)
         candidates = [
-            mail
-            for mail in messages
-            if _is_candidate_in_window(
-                mail,
-                regular_cutoff=regular_cutoff,
-                application_backfill=application_backfill,
-            )
+            mail for mail in messages if looks_like_recruiting(mail.subject, mail.sender, mail.body)
         ]
         stats.candidates = len(candidates)
         LOGGER.info(
