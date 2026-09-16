@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from job_mail_assistant.app import retry_calendars, run
+from job_mail_assistant.app import _is_candidate_in_window, retry_calendars, run
 from job_mail_assistant.config import Config
 from job_mail_assistant.deadlines import SHANGHAI
 from job_mail_assistant.models import BaseRecord, MailMessage, ParsedEmail, TimeExpression
@@ -129,6 +129,38 @@ def config() -> Config:
         ai_api_key="secret",
         ai_base_url="https://ai.example.com/v1",
         ai_model="model",
+    )
+
+
+def test_schema_backfill_only_includes_old_application_deadlines() -> None:
+    cutoff = datetime(2026, 9, 14, 8, tzinfo=SHANGHAI)
+    old_received = datetime(2026, 9, 1, 8, tzinfo=SHANGHAI)
+    old_assessment = MailMessage(
+        **{
+            **FakeMailbox.message.__dict__,
+            "received_at": old_received,
+            "subject": "在线测评邀请",
+            "body": "请完成在线测评",
+        }
+    )
+    old_application = MailMessage(
+        **{
+            **FakeMailbox.message.__dict__,
+            "received_at": old_received,
+            "subject": "校园招聘岗位推荐",
+            "body": "岗位申请截止时间：2026-10-10，立即投递。",
+        }
+    )
+
+    assert not _is_candidate_in_window(
+        old_assessment,
+        regular_cutoff=cutoff,
+        application_backfill=True,
+    )
+    assert _is_candidate_in_window(
+        old_application,
+        regular_cutoff=cutoff,
+        application_backfill=True,
     )
 
 

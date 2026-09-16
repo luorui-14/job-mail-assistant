@@ -218,6 +218,15 @@ def is_non_action_recruiting_notice(subject: str, body: str) -> bool:
     return any(term in sample for term in event_terms) and "报名" in sample
 
 
+def is_application_deadline_notice(subject: str, sender: str, body: str) -> bool:
+    sample = f"{subject}\n{sender}\n{body[:30000]}".casefold()
+    return (
+        any(term in sample for term in RECRUITING_CONTEXT_TERMS)
+        and any(term in sample for term in APPLICATION_TERMS)
+        and any(term in sample for term in APPLICATION_DEADLINE_TERMS)
+    )
+
+
 def looks_like_recruiting(subject: str, sender: str, body: str) -> bool:
     if subject.startswith(REPORT_PREFIX):
         return False
@@ -226,12 +235,7 @@ def looks_like_recruiting(subject: str, sender: str, body: str) -> bool:
     sample = f"{subject}\n{sender}\n{body[:30000]}".casefold()
     if any(term.casefold() in sample for term in ACTION_TERMS):
         return True
-    is_application_deadline = (
-        any(term in sample for term in RECRUITING_CONTEXT_TERMS)
-        and any(term in sample for term in APPLICATION_TERMS)
-        and any(term in sample for term in APPLICATION_DEADLINE_TERMS)
-    )
-    return is_application_deadline
+    return is_application_deadline_notice(subject, sender, body)
 
 
 def _received_at(meta: bytes) -> datetime:
