@@ -13,6 +13,45 @@ def test_structured_output_schema_requires_all_object_properties() -> None:
     assert "default" not in time_schema["properties"]["year"]
 
 
+def test_job_application_deadline_is_supported(monkeypatch) -> None:
+    parser = AIParser("key", "https://ai.example.com/v1", "model")
+    content = """{
+        "classification": "action",
+        "company": "示例科技公司",
+        "position": "产品策略经理（增长方向）",
+        "item_type": "投递",
+        "time_type": "deadline",
+        "original_time_text": "截止时间：2026-10-10",
+        "time_expression": {"kind": "absolute", "year": 2026, "month": 10,
+            "day": 10, "hour": null, "minute": null, "relative_value": null,
+            "relative_unit": null, "week_offset": null, "weekday": null},
+        "end_time_expression": null,
+        "action_url_index": 0,
+        "needs_confirmation": false,
+        "confirmation_reason": null,
+        "progress_summary": null
+    }"""
+    monkeypatch.setattr(parser, "_request", lambda *_: content)
+    mail = MailMessage(
+        uid="1",
+        message_id="application@example.com",
+        fingerprint="f" * 64,
+        subject="校园招聘岗位推荐",
+        sender="recruiting@example.com",
+        received_at=datetime(2026, 9, 16, 8, tzinfo=SHANGHAI),
+        body="截止时间：2026-10-10。立即投递。",
+        urls=["https://jobs.example.com/apply"],
+    )
+
+    parsed = parser.parse(mail)
+    resolved = resolve_time(parsed, mail.received_at)
+
+    assert parsed.item_type == "投递"
+    assert resolved.start == datetime(2026, 10, 10, 23, 59, tzinfo=SHANGHAI)
+    assert resolved.inferred
+    assert not resolved.needs_confirmation
+
+
 def test_only_candidate_url_repairs_link_only_ai_uncertainty(monkeypatch) -> None:
     parser = AIParser("key", "https://ai.example.com/v1", "model")
     content = """{

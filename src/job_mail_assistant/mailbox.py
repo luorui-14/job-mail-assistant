@@ -40,6 +40,31 @@ ACTION_TERMS = (
     "淘汰",
     "流程结束",
 )
+APPLICATION_TERMS = (
+    "立即投递",
+    "投递",
+    "网申",
+    "申请",
+    "应聘",
+    "报名",
+)
+APPLICATION_DEADLINE_TERMS = (
+    "截止时间",
+    "截止日期",
+    "截止投递",
+    "投递截止",
+    "申请截止",
+    "网申截止",
+    "报名截止",
+)
+RECRUITING_CONTEXT_TERMS = (
+    "招聘",
+    "校招",
+    "校园招聘",
+    "岗位",
+    "职位",
+    "应届生",
+)
 REPORT_PREFIX = "【秋招早报】"
 URL_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 INTERNALDATE_RE = re.compile(rb'INTERNALDATE "([^"]+)"')
@@ -123,9 +148,11 @@ def extract_body_and_urls(message: Message) -> tuple[str, list[str]]:
             urls.append(href)
         html_text.append(soup.get_text("\n", strip=True))
 
-    body = "\n".join(part.strip() for part in plain_parts if part.strip())
-    if not body:
-        body = "\n".join(html_text)
+    plain_body = "\n".join(part.strip() for part in plain_parts if part.strip())
+    rendered_html_body = "\n".join(part for part in html_text if part)
+    # Some recruiting platforms put only a short fallback/link in text/plain while
+    # the actual role and deadline live in text/html. Prefer the richer alternative.
+    body = max((plain_body, rendered_html_body), key=len)
     urls.extend(URL_RE.findall(body))
     return body[:50_000], filter_action_urls(urls)
 
@@ -196,8 +223,15 @@ def looks_like_recruiting(subject: str, sender: str, body: str) -> bool:
         return False
     if is_non_action_recruiting_notice(subject, body):
         return False
-    sample = f"{subject}\n{sender}\n{body[:5000]}".lower()
-    return any(term.lower() in sample for term in ACTION_TERMS)
+    sample = f"{subject}\n{sender}\n{body[:30000]}".casefold()
+    if any(term.casefold() in sample for term in ACTION_TERMS):
+        return True
+    is_application_deadline = (
+        any(term in sample for term in RECRUITING_CONTEXT_TERMS)
+        and any(term in sample for term in APPLICATION_TERMS)
+        and any(term in sample for term in APPLICATION_DEADLINE_TERMS)
+    )
+    return is_application_deadline
 
 
 def _received_at(meta: bytes) -> datetime:

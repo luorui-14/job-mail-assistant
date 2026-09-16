@@ -21,6 +21,25 @@ def test_ordinary_mail_does_not_enter() -> None:
     assert looks_like_recruiting("产品经理一面通知", "hr@example.com", "请准时参加")
 
 
+def test_job_application_with_explicit_deadline_enters() -> None:
+    subject = "示例科技公司校园招聘岗位推荐"
+    body = """【产品类】产品策略经理（增长方向）
+    所属机构：示例科技公司
+    截止时间：2026-10-10
+    岗位职责：负责 AI 相关产品的全生命周期管理。
+    立即投递
+    """
+
+    assert looks_like_recruiting(subject, "recruiting@example.com", body)
+
+
+def test_job_recommendation_without_application_deadline_is_excluded() -> None:
+    subject = "本周岗位推荐"
+    body = "校园招聘职位上新，欢迎前往招聘官网查看并申请。"
+
+    assert not looks_like_recruiting(subject, "recruiting@example.com", body)
+
+
 def test_report_mail_is_excluded() -> None:
     assert not looks_like_recruiting("【秋招早报】2026-08-28 测评", "me@qq.com", "测评")
 
@@ -84,3 +103,27 @@ def test_parse_mail_uses_internaldate_and_fallback_fingerprint() -> None:
     assert parsed.message_id is None
     assert len(parsed.fingerprint) == 64
     assert parsed.urls == ["https://exam.example.com/start"]
+
+
+def test_parse_mail_prefers_richer_html_job_deadline() -> None:
+    message = EmailMessage()
+    message["Subject"] = "校园招聘岗位推荐"
+    message["From"] = "Recruiting <recruiting@example.com>"
+    message.set_content("请前往招聘官网查看职位。")
+    message.add_alternative(
+        """<html><body>
+        <h1>【产品类】产品策略经理（增长方向）</h1>
+        <p>所属机构：示例科技公司</p>
+        <p>截止时间：2026-10-10</p>
+        <a href="https://jobs.example.com/apply">立即投递</a>
+        </body></html>""",
+        subtype="html",
+    )
+    meta = b'1 (UID 1 INTERNALDATE "16-Sep-2026 08:00:00 +0800" BODY[] {10})'
+
+    parsed = parse_mail("1", meta, message.as_bytes())
+
+    assert "截止时间：2026-10-10" in parsed.body
+    assert "立即投递" in parsed.body
+    assert looks_like_recruiting(parsed.subject, parsed.sender, parsed.body)
+    assert parsed.urls == ["https://jobs.example.com/apply"]

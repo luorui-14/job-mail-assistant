@@ -31,7 +31,7 @@ def render_report(
     warnings: list[str],
     stats: RunStats,
 ) -> tuple[str, str]:
-    subject = f"【秋招早报】{run_started_at.astimezone(SHANGHAI):%Y-%m-%d} 测评 & 面试汇总"
+    subject = f"【秋招早报】{run_started_at.astimezone(SHANGHAI):%Y-%m-%d} 求职事项汇总"
     lines: list[str] = ["Job Mail Assistant 秋招早报", ""]
 
     lines.append("一、本次扫描新增")

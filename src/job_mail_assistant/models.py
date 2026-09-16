@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ITEM_TYPES = (
+    "投递",
     "测评",
     "笔试",
     "AI面试",
@@ -54,6 +55,7 @@ class ParsedEmail(BaseModel):
     company: str | None = None
     position: str | None = None
     item_type: Literal[
+        "投递",
         "测评",
         "笔试",
         "AI面试",

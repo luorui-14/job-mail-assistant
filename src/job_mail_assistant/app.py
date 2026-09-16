@@ -12,6 +12,7 @@ from .config import Config
 from .confirmations import is_missing_relative_anchor_only_reason, normalize_confirmation
 from .deadlines import SHANGHAI, resolve_time
 from .feishu import (
+    STATE_SCHEMA_VERSION,
     STATE_TABLE_NAME,
     FeishuClient,
     FeishuError,
@@ -38,6 +39,7 @@ HUMAN_INTERVIEW_TYPES = {
     "其他面试",
 }
 RECORD_ID_RE = re.compile(r"rec[A-Za-z0-9]+")
+APPLICATION_DEADLINE_BACKFILL_DAYS = 30
 
 
 def _ids(record: BaseRecord) -> set[str]:
@@ -397,7 +399,7 @@ def run(config: Config, *, dry_run: bool = False, now: datetime | None = None) -
         state_table_id = feishu.find_table(base_token, STATE_TABLE_NAME)
         feishu.validate_schema(base_token, main_table_id, state_table_id)
         records = feishu.list_records(base_token, main_table_id)
-        cursor, cursor_record_id = feishu.get_cursor(
+        cursor, cursor_record_id, state_schema_version = feishu.get_cursor(
             base_token,
             state_table_id,
             default=run_started - timedelta(days=config.scan_days),
@@ -405,6 +407,8 @@ def run(config: Config, *, dry_run: bool = False, now: datetime | None = None) -
         scan_days = _scan_window_days(
             minimum_days=config.scan_days, last_success=cursor, now=run_started
         )
+        if state_schema_version != STATE_SCHEMA_VERSION:
+            scan_days = max(scan_days, APPLICATION_DEADLINE_BACKFILL_DAYS)
         messages = mailbox.fetch_recent(days=scan_days, now=run_started)
         stats.fetched = len(messages)
         candidates = [

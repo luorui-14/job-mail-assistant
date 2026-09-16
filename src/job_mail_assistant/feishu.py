@@ -33,6 +33,7 @@ MAIN_REQUIRED_FIELDS = {
 }
 STATE_REQUIRED_FIELDS = {"状态键", "上次完整成功时间", "Schema 版本"}
 STATE_TABLE_NAME = "JMA_运行状态（请勿手动编辑）"
+STATE_SCHEMA_VERSION = "2"
 
 
 class FeishuError(RuntimeError):
@@ -234,12 +235,16 @@ class FeishuClient:
 
     def get_cursor(
         self, base_token: str, state_table_id: str, *, default: datetime
-    ) -> tuple[datetime, str | None]:
+    ) -> tuple[datetime, str | None, str | None]:
         records = self.list_records(base_token, state_table_id)
         state = next((record for record in records if record.text("状态键") == "main"), None)
         if not state:
-            return default, None
-        return value_to_datetime(state.fields.get("上次完整成功时间")) or default, state.record_id
+            return default, None, None
+        return (
+            value_to_datetime(state.fields.get("上次完整成功时间")) or default,
+            state.record_id,
+            state.text("Schema 版本") or None,
+        )
 
     def set_cursor(
         self,
@@ -251,7 +256,7 @@ class FeishuClient:
         fields = {
             "状态键": "main",
             "上次完整成功时间": datetime_to_millis(value),
-            "Schema 版本": "1",
+            "Schema 版本": STATE_SCHEMA_VERSION,
         }
         if record_id:
             return self.update_record(

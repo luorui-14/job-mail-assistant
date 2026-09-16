@@ -54,6 +54,7 @@ class FakeFeishu:
     records: list[BaseRecord] = []
     cursor_record = None
     cursor: datetime | None = None
+    schema_version: str | None = None
 
     def __init__(self, *_):
         pass
@@ -77,12 +78,13 @@ class FakeFeishu:
         return [] if table == "state" else list(self.records)
 
     def get_cursor(self, *_, default):
-        return self.cursor or default, self.cursor_record
+        return self.cursor or default, self.cursor_record, self.schema_version
 
     def set_cursor(self, *args):
-        self.cursor_record = "state-rec"
-        self.cursor = args[-2]
-        return self.cursor_record
+        self.__class__.cursor_record = "state-rec"
+        self.__class__.cursor = args[-2]
+        self.__class__.schema_version = "2"
+        return self.__class__.cursor_record
 
     def create_record(self, _, table, fields):
         assert table == "main"
@@ -134,6 +136,7 @@ def test_two_runs_do_not_duplicate_record_or_calendar(monkeypatch):
     FakeFeishu.records = []
     FakeFeishu.cursor_record = None
     FakeFeishu.cursor = None
+    FakeFeishu.schema_version = None
     FakeCalendar.calls = 0
     FakeCalendar.titles = []
     FakeMailbox.reports = []
@@ -149,13 +152,14 @@ def test_two_runs_do_not_duplicate_record_or_calendar(monkeypatch):
     assert len(FakeFeishu.records) == 1
     assert FakeCalendar.calls == 1
     assert len(FakeMailbox.reports) == 2
-    assert FakeMailbox.fetch_days == [2, 2]
+    assert FakeMailbox.fetch_days == [30, 2]
 
 
 def test_missed_runs_expand_the_mail_scan_window(monkeypatch):
     FakeFeishu.records = []
     FakeFeishu.cursor_record = "state-rec"
     FakeFeishu.cursor = datetime(2026, 8, 24, 8, tzinfo=SHANGHAI)
+    FakeFeishu.schema_version = "2"
     FakeCalendar.calls = 0
     FakeCalendar.titles = []
     FakeMailbox.reports = []
