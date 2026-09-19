@@ -94,6 +94,67 @@ def test_relative_anchor_false_positive_record_is_reprocessed_for_repair() -> No
     assert not RecordIndex([record]).is_exact_duplicate(mail())
 
 
+def test_assessment_with_missing_deadline_is_reprocessed_for_explicit_expiry() -> None:
+    message = MailMessage(
+        **{
+            **mail().__dict__,
+            "body": "邀请于 2026年09月18日 周五 16:32 生效，"
+            "于 2026年09月25日 周五 16:32 失效",
+        }
+    )
+    record = BaseRecord(
+        "rec1", {"Message-ID": message.message_id, "类型": "测评", "截止/面试时间": None}
+    )
+    index = RecordIndex([record])
+
+    assert not index.is_exact_duplicate(message)
+    assert not index.match(message, parsed(), ResolvedTime(None, None, False, True)).duplicate
+
+
+def test_assessment_with_correct_expiry_stays_duplicate() -> None:
+    message = MailMessage(
+        **{
+            **mail().__dict__,
+            "body": "于 2026年09月25日 周五 16:32 失效",
+        }
+    )
+    record = BaseRecord(
+        "rec1",
+        {
+            "Message-ID": message.message_id,
+            "类型": "测评",
+            "截止/面试时间": int(
+                datetime(2026, 9, 25, 16, 32, tzinfo=SHANGHAI).timestamp() * 1000
+            ),
+        },
+    )
+
+    assert RecordIndex([record]).is_exact_duplicate(message)
+
+
+def test_assessment_with_issue_time_as_deadline_is_reprocessed() -> None:
+    message = MailMessage(
+        **{
+            **mail().__dict__,
+            "body": "2026年09月18日 周五 16:32 生效，"
+            "于 2026年09月25日 周五 16:32 失效",
+        }
+    )
+    record = BaseRecord(
+        "rec1",
+        {
+            "Message-ID": message.message_id,
+            "类型": "测评",
+            "原始时间描述": "2026年09月18日 周五 16:32 生效",
+            "截止/面试时间": int(
+                datetime(2026, 9, 18, 16, 32, tzinfo=SHANGHAI).timestamp() * 1000
+            ),
+        },
+    )
+
+    assert not RecordIndex([record]).is_exact_duplicate(message)
+
+
 def test_thread_reference_updates_existing_record() -> None:
     record = BaseRecord("rec1", {"Message-ID": "parent@example.com"})
     child = mail("child@example.com")

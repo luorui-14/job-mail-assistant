@@ -7,6 +7,7 @@ from typing import Any
 from openai import APIStatusError, BadRequestError, OpenAI
 
 from .confirmations import is_missing_relative_anchor_only_reason, normalize_confirmation
+from .deadlines import explicit_expiry_from_text
 from .models import MailMessage, ParsedEmail
 
 SYSTEM_PROMPT = """你是求职邮件信息提取器。只输出符合 JSON Schema 的对象。
@@ -36,6 +37,8 @@ SYSTEM_PROMPT = """你是求职邮件信息提取器。只输出符合 JSON Sche
 10. 行动邮件没有可靠入口链接或候选链接明显冲突时，needs_confirmation=true 并说明原因。
 11. 真人视频/电话/现场面试只有在邮件明确确认了实际面试日期和时间时才是 action，且
     time_type 必须为 fixed。预约、选时、改约协商和预约截止不得提取成面试发生时间。
+12. 测评/笔试邀请同时写有“生效”和“失效”时，完成截止时间取“失效”时刻；日期和
+    时间之间的“周五”等星期标注不改变明确的年月日时分。
 """
 
 
@@ -58,6 +61,30 @@ def _remove_link_only_confirmation(parsed: ParsedEmail) -> None:
     else:
         parsed.needs_confirmation = False
         parsed.confirmation_reason = None
+
+
+def _remove_expiry_time_only_confirmation(parsed: ParsedEmail) -> None:
+    if not parsed.needs_confirmation or not parsed.confirmation_reason:
+        return
+    clauses = [
+        clause.strip()
+        for clause in parsed.confirmation_reason.replace("；", ";").split(";")
+        if clause.strip()
+    ]
+    remaining = [
+        clause
+        for clause in clauses
+        if not (
+            any(term in clause for term in ("时间", "日期", "失效", "到期", "月或日"))
+            and any(
+                term in clause
+                for term in ("无法", "缺少", "未提取", "未识别", "不确定", "未给出", "没有")
+            )
+            and not any(term in clause.casefold() for term in ("链接", "入口", "url"))
+        )
+    ]
+    parsed.confirmation_reason = "；".join(remaining) or None
+    parsed.needs_confirmation = bool(remaining)
 
 
 def _strict_json_schema(schema: dict[str, Any]) -> dict[str, Any]:
@@ -163,4 +190,13 @@ class AIParser:
         ):
             parsed.action_url_index = 0
             _remove_link_only_confirmation(parsed)
+        if (
+            parsed.classification == "action"
+            and parsed.item_type in {"测评", "笔试", "AI面试"}
+            and parsed.time_type != "fixed"
+            and explicit_expiry_from_text(mail.body) is not None
+        ):
+            if parsed.time_type == "none":
+                parsed.time_type = "deadline"
+            _remove_expiry_time_only_confirmation(parsed)
         return parsed

@@ -18,10 +18,12 @@ class TimeResolutionError(ValueError):
 EXPLICIT_DATETIME_RE = re.compile(
     r"(?P<year>\d{4})\s*(?:年|[-/.])\s*"
     r"(?P<month>\d{1,2})\s*(?:月|[-/.])\s*"
-    r"(?P<day>\d{1,2})\s*(?:日)?\s+"
+    r"(?P<day>\d{1,2})\s*(?:日)?\s*(?:周[一二三四五六日天]\s*)?"
     r"(?P<hour>\d{1,2})\s*:\s*(?P<minute>\d{2})"
     r"(?:\s*:\s*\d{2})?"
 )
+EXPIRY_SUFFIX_RE = re.compile(r"^\s*(?:即|起)?\s*(?:失效|过期|截止)")
+EFFECTIVE_SUFFIX_RE = re.compile(r"^\s*(?:即|起)?\s*生效")
 RANGE_END_TIME_RE = re.compile(
     r"(?:--|—|–|至|到|~|～)\s*"
     r"(?P<hour>\d{1,2})\s*:\s*(?P<minute>\d{2})"
@@ -171,22 +173,76 @@ def _explicit_datetimes_from_text(value: str | None) -> tuple[datetime, datetime
     return start, end if end > start else None
 
 
-def resolve_time(parsed: ParsedEmail, received_at: datetime) -> ResolvedTime:
+def _labelled_datetime_from_text(value: str, suffix: re.Pattern[str]) -> datetime | None:
+    matches: set[datetime] = set()
+    for match in EXPLICIT_DATETIME_RE.finditer(value):
+        if not suffix.match(value[match.end() : match.end() + 12]):
+            continue
+        try:
+            matches.add(
+                datetime(
+                    int(match.group("year")),
+                    int(match.group("month")),
+                    int(match.group("day")),
+                    int(match.group("hour")),
+                    int(match.group("minute")),
+                    tzinfo=SHANGHAI,
+                )
+            )
+        except ValueError:
+            continue
+    return next(iter(matches)) if len(matches) == 1 else None
+
+
+def explicit_expiry_from_text(value: str) -> datetime | None:
+    """Use a unique, explicitly labelled expiry; never infer from an issue date."""
+    return _labelled_datetime_from_text(value, EXPIRY_SUFFIX_RE)
+
+
+def explicit_effective_from_text(value: str) -> datetime | None:
+    return _labelled_datetime_from_text(value, EFFECTIVE_SUFFIX_RE)
+
+
+def resolve_time(
+    parsed: ParsedEmail, received_at: datetime, *, body: str | None = None
+) -> ResolvedTime:
     received = _aware_shanghai(received_at)
     if parsed.classification != "action":
         return ResolvedTime(None, None, False, False)
+    expiry = (
+        explicit_expiry_from_text(body)
+        if body and parsed.item_type in {"测评", "笔试", "AI面试"}
+        and parsed.time_type != "fixed"
+        else None
+    )
     try:
         start, inferred = _resolve_expression(
             parsed.time_expression, received, time_type=parsed.time_type
         )
     except TimeResolutionError as exc:
-        recovered = _explicit_datetimes_from_text(parsed.original_time_text)
+        recovered = (
+            _explicit_datetimes_from_text(parsed.original_time_text)
+            if "截止" in (parsed.original_time_text or "")
+            else None
+        )
+        recovered = recovered or ((expiry, None) if expiry else None)
+        recovered = recovered or _explicit_datetimes_from_text(parsed.original_time_text)
         if not recovered:
             return ResolvedTime(None, None, False, True, str(exc))
         start, recovered_end = recovered
         inferred = False
     else:
         recovered_end = None
+        effective = explicit_effective_from_text(body) if body else None
+        selected_effective = (
+            expiry is not None
+            and effective is not None
+            and start.date() == effective.date()
+            and start.hour == effective.hour
+            and (parsed.time_expression.minute is None or start.minute == effective.minute)
+        )
+        if selected_effective:
+            start, inferred = expiry, False
 
     end = recovered_end
     if parsed.end_time_expression:

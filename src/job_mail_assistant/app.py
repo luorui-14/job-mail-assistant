@@ -10,7 +10,12 @@ from .ai_parser import AIParser
 from .apple_calendar import AppleCalendar
 from .config import Config
 from .confirmations import is_missing_relative_anchor_only_reason, normalize_confirmation
-from .deadlines import SHANGHAI, resolve_time
+from .deadlines import (
+    SHANGHAI,
+    explicit_effective_from_text,
+    explicit_expiry_from_text,
+    resolve_time,
+)
 from .feishu import (
     STATE_TABLE_NAME,
     FeishuClient,
@@ -74,15 +79,33 @@ def _is_trackable_action(
     )
 
 
-def _is_repairable(record: BaseRecord) -> bool:
+def _is_repairable(record: BaseRecord, mail: MailMessage) -> bool:
     """Retry only rows that new deterministic parser safeguards can repair."""
     reason = record.text("确认说明").casefold()
     missing_time = value_to_datetime(record.fields.get("截止/面试时间")) is None
     missing_link = record.text("链接") == ""
+    expiry = (
+        explicit_expiry_from_text(mail.body)
+        if record.text("类型") in {"测评", "笔试", "AI面试"}
+        else None
+    )
+    stored_time = value_to_datetime(record.fields.get("截止/面试时间"))
+    effective = explicit_effective_from_text(mail.body) if expiry else None
+    selected_effective = (
+        stored_time is not None
+        and effective is not None
+        and stored_time.date() == effective.date()
+        and stored_time.hour == effective.hour
+    )
     return (
         (missing_time and "缺少月或日" in reason)
         or (missing_link and any(term in reason for term in ("链接", "入口", "url")))
         or is_missing_relative_anchor_only_reason(reason)
+        or (
+            expiry is not None
+            and stored_time != expiry
+            and (stored_time is None or selected_effective)
+        )
     )
 
 
@@ -105,9 +128,9 @@ class RecordIndex:
         for record in self.records:
             record_ids = _ids(record)
             if mail.message_id and mail.message_id in record_ids:
-                return RecordMatch(record, not _is_repairable(record))
+                return RecordMatch(record, not _is_repairable(record, mail))
             if record.text("邮件指纹") == mail.fingerprint:
-                return RecordMatch(record, not _is_repairable(record))
+                return RecordMatch(record, not _is_repairable(record, mail))
         if mail.references:
             for record in self.records:
                 if _ids(record) & mail.references:
@@ -129,9 +152,9 @@ class RecordIndex:
     def is_exact_duplicate(self, mail: MailMessage) -> bool:
         for record in self.records:
             if mail.message_id and mail.message_id in _ids(record):
-                return not _is_repairable(record)
+                return not _is_repairable(record, mail)
             if record.text("邮件指纹") == mail.fingerprint:
-                return not _is_repairable(record)
+                return not _is_repairable(record, mail)
         return False
 
     def add(self, record: BaseRecord) -> None:
@@ -440,7 +463,7 @@ def run(config: Config, *, dry_run: bool = False, now: datetime | None = None) -
                     progress_items.append(label or mail.subject)
                     stats.progress_items += 1
                 continue
-            resolved = resolve_time(parsed, mail.received_at)
+            resolved = resolve_time(parsed, mail.received_at, body=mail.body)
             if not _is_trackable_action(mail, parsed, resolved):
                 continue
 

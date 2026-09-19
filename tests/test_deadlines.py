@@ -130,3 +130,42 @@ def test_explicit_datetime_text_repairs_incomplete_ai_shape() -> None:
     assert result.end == datetime(2026, 8, 30, 11, 0, tzinfo=SHANGHAI)
     assert not result.inferred
     assert not result.needs_confirmation
+
+
+def test_assessment_invitation_uses_expiry_instead_of_issue_time() -> None:
+    received = datetime(2026, 9, 18, 17, 0, tzinfo=SHANGHAI)
+    body = (
+        "本次测试邀请于 2026年09月18日 周五 16:32 生效，"
+        "于 2026年09月25日 周五 16:32 失效。请及时完成测评。"
+    )
+    parsed = action(TimeExpression(kind="none"))
+    parsed.original_time_text = "本次测试邀请于 2026年09月18日 周五 16:32 生效"
+
+    result = resolve_time(parsed, received, body=body)
+
+    assert result.start == datetime(2026, 9, 25, 16, 32, tzinfo=SHANGHAI)
+    assert not result.inferred
+    assert not result.needs_confirmation
+
+
+def test_issue_time_selected_by_ai_is_corrected_to_expiry() -> None:
+    received = datetime(2026, 9, 18, 17, tzinfo=SHANGHAI)
+    body = "2026年09月18日 周五 16:32 生效，于 2026年09月25日 周五 16:32 失效"
+    parsed = action(TimeExpression(kind="absolute", year=2026, month=9, day=18, hour=16))
+    parsed.original_time_text = "2026年09月18日 周五 16:32 生效"
+
+    result = resolve_time(parsed, received, body=body)
+
+    assert result.start == datetime(2026, 9, 25, 16, 32, tzinfo=SHANGHAI)
+
+
+def test_conflicting_expiry_times_are_not_guessed() -> None:
+    parsed = action(TimeExpression(kind="none"))
+    body = "2026年09月25日 16:32 失效；2026年09月26日 16:32 失效"
+
+    result = resolve_time(
+        parsed, datetime(2026, 9, 18, 17, tzinfo=SHANGHAI), body=body
+    )
+
+    assert result.start is None
+    assert result.needs_confirmation

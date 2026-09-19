@@ -199,3 +199,33 @@ def test_relative_anchor_cleanup_preserves_other_material_uncertainty(monkeypatc
 
     assert parsed.needs_confirmation
     assert parsed.confirmation_reason == "未给出起始日期，且候选链接存在冲突"
+
+
+def test_explicit_assessment_expiry_clears_time_only_ai_warning(monkeypatch) -> None:
+    parser = AIParser("key", "https://ai.example.com/v1", "model")
+    content = ParsedEmail(
+        classification="action",
+        company="示例公司",
+        item_type="测评",
+        time_type="deadline",
+        original_time_text="邀请于 2026年09月18日 周五 16:32 生效",
+        needs_confirmation=True,
+        confirmation_reason="无法确定截止时间",
+    ).model_dump_json()
+    monkeypatch.setattr(parser, "_request", lambda *_: content)
+    mail = MailMessage(
+        uid="1",
+        message_id="assessment@example.com",
+        fingerprint="f" * 64,
+        subject="在线测评邀请",
+        sender="hr@example.com",
+        received_at=datetime(2026, 9, 18, 17, tzinfo=SHANGHAI),
+        body="2026年09月18日 周五 16:32 生效，于 2026年09月25日 周五 16:32 失效",
+        urls=["https://example.com/start"],
+    )
+
+    parsed = parser.parse(mail)
+    resolved = resolve_time(parsed, mail.received_at, body=mail.body)
+
+    assert not parsed.needs_confirmation
+    assert resolved.start == datetime(2026, 9, 25, 16, 32, tzinfo=SHANGHAI)
