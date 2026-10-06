@@ -39,6 +39,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    # Request URLs can contain private Wiki/Base identifiers; keep only application logs.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     args = build_parser().parse_args()
     dry_run = getattr(args, "dry_run", False)
     calendar_only = args.command == "retry-calendar"

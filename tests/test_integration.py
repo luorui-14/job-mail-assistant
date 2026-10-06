@@ -1,5 +1,8 @@
 from datetime import datetime
 
+import pytest
+
+from job_mail_assistant.ai_parser import AIParser
 from job_mail_assistant.app import retry_calendars, run
 from job_mail_assistant.config import Config
 from job_mail_assistant.deadlines import SHANGHAI
@@ -226,3 +229,36 @@ def test_position_only_confirmation_does_not_block_calendar_retry(monkeypatch):
     assert retry_calendars(config()) == 0
     assert FakeCalendar.calls == 1
     assert FakeCalendar.titles == ["快手｜测评截止"]
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_exhausted_ai_validation_does_not_write_items_or_advance_cursor(
+    monkeypatch, caplog, dry_run
+):
+    FakeFeishu.records = []
+    FakeFeishu.cursor_record = "state-rec"
+    previous_cursor = datetime(2026, 8, 27, 8, tzinfo=SHANGHAI)
+    FakeFeishu.cursor = previous_cursor
+    FakeCalendar.calls = 0
+    FakeMailbox.reports = []
+    FakeMailbox.fetch_days = []
+    requests = []
+
+    def invalid_response(*args, **kwargs):
+        requests.append(kwargs)
+        return '{"classification":"action", "time_expression":{"kind":"relative"}}'
+
+    monkeypatch.setattr("job_mail_assistant.app.QQMailbox", FakeMailbox)
+    monkeypatch.setattr("job_mail_assistant.app.FeishuClient", FakeFeishu)
+    monkeypatch.setattr("job_mail_assistant.app.AppleCalendar", FakeCalendar)
+    monkeypatch.setattr(AIParser, "_request", invalid_response)
+
+    assert run(config(), now=datetime(2026, 8, 28, 8, tzinfo=SHANGHAI), dry_run=dry_run) == 1
+    assert len(requests) == 3
+    assert FakeFeishu.records == []
+    assert FakeCalendar.calls == 0
+    assert FakeFeishu.cursor == previous_cursor
+    assert "time_expression: value_error" in caplog.text
+    assert len(FakeMailbox.reports) == (0 if dry_run else 1)
+    if not dry_run:
+        assert "AI 解析失败" in FakeMailbox.reports[0][1]

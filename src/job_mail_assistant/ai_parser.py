@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any
 
 from openai import APIStatusError, BadRequestError, OpenAI
+from pydantic import ValidationError
 
 from .confirmations import is_missing_relative_anchor_only_reason, normalize_confirmation
 from .deadlines import explicit_expiry_from_text
-from .models import MailMessage, ParsedEmail
+from .models import MailMessage, ParsedEmail, TimeExpression
+
+LOGGER = logging.getLogger(__name__)
+MAX_VALIDATION_ATTEMPTS = 3
 
 SYSTEM_PROMPT = """你是求职邮件信息提取器。只输出符合 JSON Schema 的对象。
 
@@ -24,7 +29,8 @@ SYSTEM_PROMPT = """你是求职邮件信息提取器。只输出符合 JSON Sche
 规则：
 1. 不做日期加减，不根据相对时间生成最终日期。只提取 time_expression 的组成部分。
 2. absolute 提取邮件明确写出的年/月/日/时/分；未写的字段必须为 null。
-3. relative 提取 value 和 hour/day/workday；“N天内”是 day，“N个工作日内”是 workday。
+3. relative 提取 relative_value 和 relative_unit；单位只能是 hour/day/workday。
+   “N小时内”或“链接有效期为N小时”是 hour，“N天内”是 day，“N个工作日内”是 workday。
    relative 一律以给定的邮件接收时间为起算点；正文未另写起始日期不构成不确定性，不得因此
    设置 needs_confirmation=true。
 4. weekday 中本周 week_offset=0、下周=1，星期一到星期日为 1..7。
@@ -111,12 +117,27 @@ class AIParseError(RuntimeError):
     pass
 
 
+def _validation_feedback(exc: ValidationError) -> str:
+    """Describe schema failures without including model output or mail content."""
+    known_fields = set(ParsedEmail.model_fields) | set(TimeExpression.model_fields)
+    failures = []
+    for error in exc.errors(include_input=False, include_context=False, include_url=False)[:8]:
+        path = ".".join(
+            str(part) if part in known_fields or isinstance(part, int) else "<field>"
+            for part in error["loc"]
+        ) or "<root>"
+        failures.append(f"{path}: {error['type']}")
+    return "; ".join(failures)
+
+
 class AIParser:
     def __init__(self, api_key: str, base_url: str, model: str) -> None:
         self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=60.0)
         self.model = model
 
-    def _messages(self, mail: MailMessage) -> list[dict[str, str]]:
+    def _messages(
+        self, mail: MailMessage, validation_feedback: str | None = None
+    ) -> list[dict[str, str]]:
         url_lines = "\n".join(f"[{index}] {url}" for index, url in enumerate(mail.urls))
         user = (
             f"邮件接收时间（北京时间）：{mail.received_at.isoformat()}\n"
@@ -125,18 +146,37 @@ class AIParser:
             f"候选链接：\n{url_lines or '(无)'}\n\n"
             f"正文：\n{mail.body[:30000]}"
         )
-        return [
-            {"role": "system", "content": SYSTEM_PROMPT},
+        schema = json.dumps(
+            _strict_json_schema(ParsedEmail.model_json_schema()), ensure_ascii=False
+        )
+        messages = [
+            {"role": "system", "content": f"{SYSTEM_PROMPT}\n完整 JSON Schema：\n{schema}"},
             {"role": "user", "content": user},
         ]
+        if validation_feedback:
+            messages.append({
+                "role": "user",
+                "content": (
+                    f"上次输出未通过校验：{validation_feedback}。请重新提取并返回完整 JSON 对象。"
+                    "严格使用 schema 的字段名和枚举；未知信息用 null。relative 必须包含"
+                    "正整数 relative_value 以及 hour/day/workday 之一的 relative_unit。"
+                ),
+            })
+        return messages
 
-    def _request(self, mail: MailMessage, response_format: dict[str, Any]) -> str:
+    def _request(
+        self,
+        mail: MailMessage,
+        response_format: dict[str, Any],
+        *,
+        validation_feedback: str | None = None,
+    ) -> str:
         last_error: Exception | None = None
         for attempt in range(3):
             try:
                 response = self.client.chat.completions.create(
                     model=self.model,
-                    messages=self._messages(mail),  # type: ignore[arg-type]
+                    messages=self._messages(mail, validation_feedback),  # type: ignore[arg-type]
                     temperature=0,
                     response_format=response_format,  # type: ignore[arg-type]
                 )
@@ -161,14 +201,30 @@ class AIParser:
                 "schema": _strict_json_schema(ParsedEmail.model_json_schema()),
             },
         }
-        try:
-            content = self._request(mail, schema_format)
-        except BadRequestError:
-            content = self._request(mail, {"type": "json_object"})
-        try:
-            parsed = ParsedEmail.model_validate(json.loads(content))
-        except Exception as exc:
-            raise AIParseError("AI response failed schema validation") from exc
+        response_format = schema_format
+        feedback = None
+        for attempt in range(MAX_VALIDATION_ATTEMPTS):
+            request_kwargs = {"validation_feedback": feedback} if feedback else {}
+            try:
+                content = self._request(mail, response_format, **request_kwargs)
+            except BadRequestError:
+                if response_format["type"] != "json_schema":
+                    raise
+                response_format = {"type": "json_object"}
+                content = self._request(mail, response_format, **request_kwargs)
+            try:
+                parsed = ParsedEmail.model_validate(json.loads(content))
+                break
+            except json.JSONDecodeError as exc:
+                feedback = f"Invalid JSON at line {exc.lineno}, column {exc.colno}"
+            except ValidationError as exc:
+                feedback = _validation_feedback(exc)
+            LOGGER.warning(
+                "AI response rejected (attempt %d/%d): %s",
+                attempt + 1, MAX_VALIDATION_ATTEMPTS, feedback,
+            )
+        else:
+            raise AIParseError(f"AI response failed schema validation after retries: {feedback}")
         parsed.needs_confirmation, normalized_reason = normalize_confirmation(
             parsed.needs_confirmation, parsed.confirmation_reason
         )

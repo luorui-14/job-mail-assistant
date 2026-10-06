@@ -1,8 +1,14 @@
+import json
 from datetime import datetime
+from types import SimpleNamespace
 
-from job_mail_assistant.ai_parser import AIParser, _strict_json_schema
+import httpx
+import pytest
+from openai import BadRequestError
+
+from job_mail_assistant.ai_parser import AIParseError, AIParser, _strict_json_schema
 from job_mail_assistant.deadlines import SHANGHAI, resolve_time
-from job_mail_assistant.models import MailMessage, ParsedEmail
+from job_mail_assistant.models import MailMessage, ParsedEmail, TimeExpression
 
 
 def test_structured_output_schema_requires_all_object_properties() -> None:
@@ -229,3 +235,108 @@ def test_explicit_assessment_expiry_clears_time_only_ai_warning(monkeypatch) -> 
 
     assert not parsed.needs_confirmation
     assert resolved.start == datetime(2026, 9, 25, 16, 32, tzinfo=SHANGHAI)
+
+
+def assessment_mail() -> MailMessage:
+    return MailMessage(
+        uid="2",
+        message_id="assessment@example.com",
+        fingerprint="a" * 64,
+        subject="示例企业校园招聘测评通知",
+        sender="recruiting@example.com",
+        received_at=datetime(2026, 10, 5, 14, 32, tzinfo=SHANGHAI),
+        body="请使用测评入口完成测试。链接有效期为72小时。客服提供24小时咨询服务。",
+        urls=[
+            "https://assessment.example.com/start",
+            "https://jobs.example.com/progress",
+            "https://devices.example.com/check",
+        ],
+    )
+
+
+def valid_assessment_json() -> str:
+    return ParsedEmail(
+        classification="action",
+        company="示例企业",
+        item_type="测评",
+        time_type="deadline",
+        original_time_text="链接有效期为72小时",
+        time_expression=TimeExpression(kind="relative", relative_value=72, relative_unit="hour"),
+        action_url_index=0,
+    ).model_dump_json()
+
+
+@pytest.mark.parametrize("invalid", [
+    '{"classification": "action", "time_expression": {"kind": "relative"}}',
+    valid_assessment_json().replace('"relative_unit":"hour"', '"relative_unit":"hours"'),
+    '{"classification":',
+    '[]',
+])
+def test_invalid_output_is_retried_before_resolving_assessment(monkeypatch, invalid) -> None:
+    parser = AIParser("key", "https://ai.example.com/v1", "model")
+    calls = []
+    responses = iter([invalid, valid_assessment_json()])
+
+    def request(mail, response_format, **kwargs):
+        calls.append(kwargs)
+        return next(responses)
+
+    monkeypatch.setattr(parser, "_request", request)
+    mail = assessment_mail()
+    parsed = parser.parse(mail)
+    resolved = resolve_time(parsed, mail.received_at, body=mail.body)
+
+    assert len(calls) == 2
+    assert calls[1]["validation_feedback"]
+    assert parsed.action_url_index == 0
+    assert resolved.start == datetime(2026, 10, 8, 14, 32, tzinfo=SHANGHAI)
+    assert not resolved.needs_confirmation
+
+
+def test_schema_retries_are_bounded_and_do_not_expose_model_output(monkeypatch, caplog) -> None:
+    parser = AIParser("key", "https://ai.example.com/v1", "model")
+    calls = []
+    invalid = '{"classification":"private model text", "private@example.com":"secret"}'
+
+    def request(*args, **kwargs):
+        calls.append(kwargs)
+        return invalid
+
+    monkeypatch.setattr(parser, "_request", request)
+    with pytest.raises(AIParseError, match="after retries") as caught:
+        parser.parse(assessment_mail())
+
+    assert len(calls) == 3
+    assert "classification: literal_error" in str(caught.value)
+    for value in (str(caught.value), caplog.text, str(calls)):
+        assert "private model text" not in value
+        assert "private@example.com" not in value
+        assert "secret" not in value
+
+
+def test_json_object_fallback_receives_complete_schema(monkeypatch) -> None:
+    parser = AIParser("key", "https://ai.example.com/v1", "model")
+    requests = []
+
+    def create(**kwargs):
+        requests.append(kwargs)
+        if kwargs["response_format"]["type"] == "json_schema":
+            raise BadRequestError(
+                "Unsupported response format",
+                response=httpx.Response(400, request=httpx.Request("POST", "https://example.com")),
+                body=None,
+            )
+        return SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content=valid_assessment_json())
+        )])
+
+    monkeypatch.setattr(parser.client.chat.completions, "create", create)
+    parsed = parser.parse(assessment_mail())
+
+    assert len(requests) == 2
+    assert requests[1]["response_format"] == {"type": "json_object"}
+    prompt = requests[1]["messages"][0]["content"]
+    schema = json.loads(prompt.split("完整 JSON Schema：\n", 1)[1])
+    assert set(schema["required"]) == set(ParsedEmail.model_fields)
+    assert "relative_value" in schema["$defs"]["TimeExpression"]["required"]
+    assert parsed.time_expression.relative_value == 72

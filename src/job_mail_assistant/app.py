@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from math import ceil
 
-from .ai_parser import AIParser
+from .ai_parser import AIParseError, AIParser
 from .apple_calendar import AppleCalendar
 from .config import Config
 from .confirmations import is_missing_relative_anchor_only_reason, normalize_confirmation
@@ -449,6 +449,8 @@ def run(config: Config, *, dry_run: bool = False, now: datetime | None = None) -
             try:
                 parsed = ai.parse(mail)
             except Exception as exc:
+                detail = str(exc) if isinstance(exc, AIParseError) else type(exc).__name__
+                LOGGER.error("AI parsing failed: %s", detail)
                 fatal_errors.append(f"AI 解析失败：{mail.subject}（{type(exc).__name__}）")
                 continue
             if parsed.classification == "irrelevant":
