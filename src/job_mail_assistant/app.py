@@ -488,6 +488,16 @@ def run(config: Config, *, dry_run: bool = False, now: datetime | None = None) -
                     match.record or BaseRecord(f"dry-run-{mail.uid}", {}), changes
                 )
                 changed_records.append(record)
+                LOGGER.info(
+                    "Dry run item: company=%s type=%s received=%s start=%s "
+                    "confirmation=%s action_url_index=%s",
+                    (parsed.company or "").replace("\n", " ").replace("\r", " ")[:80],
+                    parsed.item_type,
+                    mail.received_at.isoformat(),
+                    resolved.start.isoformat() if resolved.start else None,
+                    bool(changes.get("需要人工确认")),
+                    parsed.action_url_index,
+                )
                 continue
             try:
                 if match.record:

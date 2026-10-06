@@ -40,6 +40,8 @@ python -m job_mail_assistant retry-calendar
 ```
 
 `--dry-run` 会读取 QQ 邮件、调用 AI 并读取飞书用于去重，但不会写飞书、创建 Calendar 事件或发送早报。
+日志会列出本次可处理事项的公司、类型、接收时间、解析时间、确认状态及入口链接序号，
+便于核对解析结果；不输出正文或完整链接。
 `retry-calendar` 只补偿飞书中待处理或失败的 iCloud 事件，不读取邮件、不调用 AI，也不发送早报。
 
 ## 环境变量

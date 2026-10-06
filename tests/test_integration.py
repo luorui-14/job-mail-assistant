@@ -262,3 +262,27 @@ def test_exhausted_ai_validation_does_not_write_items_or_advance_cursor(
     assert len(FakeMailbox.reports) == (0 if dry_run else 1)
     if not dry_run:
         assert "AI 解析失败" in FakeMailbox.reports[0][1]
+
+
+def test_dry_run_reports_resolved_item_without_writing_or_logging_mail_body(monkeypatch, caplog):
+    FakeFeishu.records = []
+    FakeFeishu.cursor_record = None
+    FakeFeishu.cursor = None
+    FakeMailbox.reports = []
+    FakeCalendar.calls = 0
+    monkeypatch.setattr("job_mail_assistant.app.QQMailbox", FakeMailbox)
+    monkeypatch.setattr("job_mail_assistant.app.AIParser", FakeAI)
+    monkeypatch.setattr("job_mail_assistant.app.FeishuClient", FakeFeishu)
+    monkeypatch.setattr("job_mail_assistant.app.AppleCalendar", FakeCalendar)
+    caplog.set_level("INFO", logger="job_mail_assistant.app")
+
+    assert run(config(), now=datetime(2026, 8, 28, 8, tzinfo=SHANGHAI), dry_run=True) == 0
+
+    assert "type=测评" in caplog.text
+    assert "start=2026-08-30T10:00:00+08:00" in caplog.text
+    assert "confirmation=False action_url_index=0" in caplog.text
+    assert FakeMailbox.message.body not in caplog.text
+    assert FakeMailbox.message.urls[0] not in caplog.text
+    assert FakeMailbox.reports == []
+    assert FakeFeishu.records == []
+    assert FakeCalendar.calls == 0
