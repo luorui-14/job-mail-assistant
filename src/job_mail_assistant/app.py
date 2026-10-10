@@ -12,8 +12,10 @@ from .config import Config
 from .confirmations import is_missing_relative_anchor_only_reason, normalize_confirmation
 from .deadlines import (
     SHANGHAI,
+    TimeResolutionError,
     explicit_effective_from_text,
     explicit_expiry_from_text,
+    relative_deadline_from_text,
     resolve_time,
 )
 from .feishu import (
@@ -101,12 +103,38 @@ def _is_repairable(record: BaseRecord, mail: MailMessage) -> bool:
         (missing_time and "缺少月或日" in reason)
         or (missing_link and any(term in reason for term in ("链接", "入口", "url")))
         or is_missing_relative_anchor_only_reason(reason)
+        or _relative_deadline_repair(record, mail) is not None
         or (
             expiry is not None
             and stored_time != expiry
             and (stored_time is None or selected_effective)
         )
     )
+
+
+def _relative_deadline_repair(record: BaseRecord, mail: MailMessage) -> ResolvedTime | None:
+    if record.text("时间类型") != "deadline" or record.text("类型") not in {
+        "测评", "笔试", "AI面试"
+    }:
+        return None
+    # A threaded update can supersede an older deadline. Repair only the source mail
+    # whose authoritative receive time is still stored in this row.
+    if value_to_datetime(record.fields.get("邮件接收时间")) != mail.received_at:
+        return None
+    try:
+        expression = relative_deadline_from_text(mail.body)
+    except TimeResolutionError:
+        return None
+    if expression is None:
+        return None
+    parsed = ParsedEmail(
+        classification="action", time_type="deadline", time_expression=expression
+    )
+    resolved = resolve_time(parsed, mail.received_at)
+    stored = value_to_datetime(record.fields.get("截止/面试时间"))
+    if resolved.start is None or stored == resolved.start:
+        return None
+    return resolved
 
 
 @dataclass
@@ -380,6 +408,83 @@ def retry_calendars(config: Config) -> int:
         len(warnings),
     )
     return 2 if warnings else 0
+
+
+def repair_relative_deadlines(config: Config, *, company: str, dry_run: bool = False) -> int:
+    """Repair existing rows from exact source mail, without AI, reports, or cursor writes."""
+    if not company.strip():
+        raise ValueError("Deadline repair requires an exact company name")
+    now = datetime.now(SHANGHAI)
+    messages = QQMailbox(config.qq_email, config.qq_auth_code).fetch_recent(
+        days=config.scan_days, now=now
+    )
+    stats = RunStats()
+    with FeishuClient(config.feishu_app_id, config.feishu_app_secret) as feishu:
+        base_token = feishu.resolve_wiki(config.feishu_wiki_url)
+        table_id = feishu.find_table(base_token, config.feishu_table_name)
+        state_id = feishu.find_table(base_token, STATE_TABLE_NAME)
+        feishu.validate_schema(base_token, table_id, state_id)
+        records = [
+            record for record in feishu.list_records(base_token, table_id)
+            if record.text("公司") == company
+        ]
+        changed = []
+        matched = 0
+        proposed = 0
+        for record in records:
+            source = [
+                mail for mail in messages
+                if ((mail.message_id and mail.message_id in _ids(record))
+                    or mail.fingerprint == record.text("邮件指纹"))
+                and value_to_datetime(record.fields.get("邮件接收时间")) == mail.received_at
+            ]
+            if len(source) != 1:
+                continue
+            matched += 1
+            mail = source[0]
+            resolved = _relative_deadline_repair(record, mail)
+            if resolved is None:
+                continue
+            proposed += 1
+            stored = value_to_datetime(record.fields.get("截止/面试时间"))
+            LOGGER.info(
+                "Relative deadline repair: received=%s stored=%s corrected=%s dry_run=%s",
+                mail.received_at.isoformat(),
+                stored.isoformat() if stored else None,
+                resolved.start.isoformat(),
+                dry_run,
+            )
+            if dry_run:
+                continue
+            changes = {
+                "截止/面试时间": datetime_to_millis(resolved.start),
+                "结束时间": None,
+                "时间为推算": False,
+                "Calendar 状态": "pending",
+                "最后处理时间": datetime_to_millis(now),
+            }
+            feishu.update_record(base_token, table_id, record.record_id, changes)
+            record.fields.update(changes)
+            changed.append(record)
+        warnings = []
+        if changed:
+            persisted = {r.record_id: r for r in feishu.list_records(base_token, table_id)}
+            for record in changed:
+                if persisted[record.record_id].fields.get("截止/面试时间") != record.fields[
+                    "截止/面试时间"
+                ]:
+                    raise FeishuError("Deadline repair verification failed")
+            warnings = sync_calendars(
+                config=config, feishu=feishu, base_token=base_token, table_id=table_id,
+                records=changed, stats=stats,
+            )
+    LOGGER.info(
+        "Relative deadline repair complete: matched=%d proposed=%d updated=%d "
+        "calendar_synced=%d warnings=%d",
+        matched, proposed, len(changed), stats.calendar_created + stats.calendar_updated,
+        len(warnings),
+    )
+    return 1 if not matched else (2 if warnings else 0)
 
 
 def delete_calendar_events(config: Config, record_ids: list[str]) -> int:

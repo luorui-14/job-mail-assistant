@@ -29,6 +29,36 @@ RANGE_END_TIME_RE = re.compile(
     r"(?P<hour>\d{1,2})\s*:\s*(?P<minute>\d{2})"
     r"(?:\s*:\s*\d{2})?"
 )
+RELATIVE_DEADLINE_RE = re.compile(
+    r"(?:(?:收到|接收)(?:本|该|此)?(?:封)?邮件\s*(?:之日起|后的|后|起|的)?"
+    r"|(?:考试|测试|测评|笔试)?链接有效期\s*(?:为|是|[:：])?)\s*"
+    r"(?P<value>\d+)\s*(?:个)?(?P<unit>工作日|小时|天|日)"
+)
+EXPLICIT_DATE_RE = re.compile(r"\d{4}\s*(?:年|[-/.])\s*\d{1,2}|\d{1,2}\s*月\s*\d{1,2}")
+OTHER_RELATIVE_ANCHOR_RE = re.compile(
+    r"(?:点击(?:链接)?|打开(?:链接)?|登录|登陆|开始答题|注册)\s*(?:后|起)"
+    r".{0,12}?\d+\s*(?:个)?(?:工作日|小时|天|日)"
+)
+
+
+def relative_deadline_from_text(value: str) -> TimeExpression | None:
+    """Extract only explicit receive-anchored deadlines or unambiguous link validity."""
+    matches = {
+        (int(match.group("value")), match.group("unit"))
+        for match in RELATIVE_DEADLINE_RE.finditer(value)
+    }
+    if not matches or EXPLICIT_DATE_RE.search(value) or OTHER_RELATIVE_ANCHOR_RE.search(value):
+        return None
+    normalized = {
+        (count, {"小时": "hour", "天": "day", "日": "day", "工作日": "workday"}[unit])
+        for count, unit in matches
+    }
+    if len(normalized) != 1:
+        raise TimeResolutionError("原文包含相互冲突的相对截止时间，请人工确认")
+    count, unit = normalized.pop()
+    if count <= 0:
+        raise TimeResolutionError("原文的相对截止时间必须为正数")
+    return TimeExpression(kind="relative", relative_value=count, relative_unit=unit)
 
 
 def _aware_shanghai(value: datetime) -> datetime:
@@ -209,6 +239,12 @@ def resolve_time(
     received = _aware_shanghai(received_at)
     if parsed.classification != "action":
         return ResolvedTime(None, None, False, False)
+    expression = parsed.time_expression
+    if body and parsed.time_type == "deadline":
+        try:
+            expression = relative_deadline_from_text(body) or expression
+        except TimeResolutionError as exc:
+            return ResolvedTime(None, None, False, True, str(exc))
     expiry = (
         explicit_expiry_from_text(body)
         if body and parsed.item_type in {"测评", "笔试", "AI面试"}
@@ -217,7 +253,7 @@ def resolve_time(
     )
     try:
         start, inferred = _resolve_expression(
-            parsed.time_expression, received, time_type=parsed.time_type
+            expression, received, time_type=parsed.time_type
         )
     except TimeResolutionError as exc:
         recovered = (
