@@ -131,9 +131,12 @@ def _validation_feedback(exc: ValidationError) -> str:
 
 
 class AIParser:
-    def __init__(self, api_key: str, base_url: str, model: str) -> None:
+    def __init__(
+        self, api_key: str, base_url: str, model: str, *, enable_thinking: bool | None = None
+    ) -> None:
         self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=60.0)
         self.model = model
+        self.enable_thinking = enable_thinking
 
     def _messages(
         self, mail: MailMessage, validation_feedback: str | None = None
@@ -172,6 +175,9 @@ class AIParser:
         validation_feedback: str | None = None,
     ) -> str:
         last_error: Exception | None = None
+        request_options: dict[str, Any] = {}
+        if self.enable_thinking is not None:
+            request_options["extra_body"] = {"enable_thinking": self.enable_thinking}
         for attempt in range(3):
             try:
                 response = self.client.chat.completions.create(
@@ -179,6 +185,7 @@ class AIParser:
                     messages=self._messages(mail, validation_feedback),  # type: ignore[arg-type]
                     temperature=0,
                     response_format=response_format,  # type: ignore[arg-type]
+                    **request_options,
                 )
                 content = response.choices[0].message.content
                 if not content:

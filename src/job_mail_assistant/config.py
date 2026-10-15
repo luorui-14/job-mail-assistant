@@ -23,6 +23,7 @@ class Config:
     icloud_calendar_name: str = "秋招"
     feishu_table_name: str = "测评&面试"
     scan_days: int = 2
+    ai_enable_thinking: bool | None = None
 
     @classmethod
     def from_env(cls) -> Config:
@@ -52,6 +53,10 @@ class Config:
         if not 1 <= scan_days <= 30:
             raise ConfigError("SCAN_DAYS must be between 1 and 30")
 
+        thinking = (os.getenv("AI_ENABLE_THINKING") or "").strip().lower()
+        if thinking not in {"", "true", "false"}:
+            raise ConfigError("AI_ENABLE_THINKING must be true, false, or empty")
+
         return cls(
             qq_email=required["QQ_EMAIL"] or "",
             qq_auth_code=required["QQ_AUTH_CODE"] or "",
@@ -68,4 +73,5 @@ class Config:
             feishu_table_name=(os.getenv("FEISHU_TABLE_NAME") or "").strip()
             or "测评&面试",
             scan_days=scan_days,
+            ai_enable_thinking=None if not thinking else thinking == "true",
         )

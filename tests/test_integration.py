@@ -35,7 +35,7 @@ class FakeMailbox:
 
 
 class FakeAI:
-    def __init__(self, *_):
+    def __init__(self, *_, enable_thinking=None):
         pass
 
     def parse(self, _):

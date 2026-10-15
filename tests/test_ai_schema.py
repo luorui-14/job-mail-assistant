@@ -314,8 +314,11 @@ def test_schema_retries_are_bounded_and_do_not_expose_model_output(monkeypatch, 
         assert "secret" not in value
 
 
-def test_json_object_fallback_receives_complete_schema(monkeypatch) -> None:
-    parser = AIParser("key", "https://ai.example.com/v1", "model")
+@pytest.mark.parametrize("enable_thinking", [None, False, True])
+def test_json_object_fallback_receives_complete_schema(monkeypatch, enable_thinking) -> None:
+    parser = AIParser(
+        "key", "https://ai.example.com/v1", "model", enable_thinking=enable_thinking
+    )
     requests = []
 
     def create(**kwargs):
@@ -334,6 +337,11 @@ def test_json_object_fallback_receives_complete_schema(monkeypatch) -> None:
     parsed = parser.parse(assessment_mail())
 
     assert len(requests) == 2
+    for request in requests:
+        if enable_thinking is None:
+            assert "extra_body" not in request
+        else:
+            assert request["extra_body"] == {"enable_thinking": enable_thinking}
     assert requests[1]["response_format"] == {"type": "json_object"}
     prompt = requests[1]["messages"][0]["content"]
     schema = json.loads(prompt.split("完整 JSON Schema：\n", 1)[1])

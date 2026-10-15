@@ -512,7 +512,10 @@ def run(config: Config, *, dry_run: bool = False, now: datetime | None = None) -
     run_started = (now or datetime.now(SHANGHAI)).astimezone(SHANGHAI)
     stats = RunStats()
     mailbox = QQMailbox(config.qq_email, config.qq_auth_code)
-    ai = AIParser(config.ai_api_key, config.ai_base_url, config.ai_model)
+    ai = AIParser(
+        config.ai_api_key, config.ai_base_url, config.ai_model,
+        enable_thinking=config.ai_enable_thinking,
+    )
 
     fatal_errors: list[str] = []
     warnings: list[str] = []
@@ -595,13 +598,15 @@ def run(config: Config, *, dry_run: bool = False, now: datetime | None = None) -
                 changed_records.append(record)
                 LOGGER.info(
                     "Dry run item: company=%s type=%s received=%s start=%s "
-                    "confirmation=%s action_url_index=%s",
+                    "confirmation=%s action_url_index=%s time_kind=%s time_type=%s",
                     (parsed.company or "").replace("\n", " ").replace("\r", " ")[:80],
                     parsed.item_type,
                     mail.received_at.isoformat(),
                     resolved.start.isoformat() if resolved.start else None,
                     bool(changes.get("需要人工确认")),
                     parsed.action_url_index,
+                    parsed.time_expression.kind,
+                    parsed.time_type,
                 )
                 continue
             try:

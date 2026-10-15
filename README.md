@@ -63,6 +63,7 @@ python -m job_mail_assistant retry-calendar
 | `AI_API_KEY` | 是 | OpenAI-compatible API Key |
 | `AI_BASE_URL` | 是 | 兼容 API 的 base URL，通常以 `/v1` 结尾 |
 | `AI_MODEL` | 是 | 实际使用的模型名 |
+| `AI_ENABLE_THINKING` | 否 | `true` 开启、`false` 关闭思考模式；留空不传扩展参数，沿用服务商默认行为。仅适用于支持 `enable_thinking` 的接口和模型 |
 | `ICLOUD_CALENDAR_NAME` | 否 | 默认 `秋招` |
 | `FEISHU_TABLE_NAME` | 否 | 默认 `测评&面试` |
 | `SCAN_DAYS` | 否 | 默认 2，允许 1–30；若上次成功运行更早，会自动扩展回扫范围 |
@@ -154,6 +155,12 @@ AI_MODEL
 ```
 
 `ICLOUD_CALENDAR_NAME` 有默认值；如需覆盖，可额外建立同名 Secret。
+
+百炼 `qwen3.8-max` 默认开启思考模式，可能因额外推理耗时触发单次请求的 60 秒超时。
+用于本项目的字段提取时，可将可选 Secret `AI_ENABLE_THINKING` 设为 `false`，在保留
+JSON Schema / Pydantic 严格校验的同时减少推理耗时。改模型或思考模式后先运行
+`dry_run=true`；确认解析通过，再正式补跑。换到不支持此参数的模型时，应清空该 Secret。
+只读日志中的 `time_kind` 和 `time_type` 只显示时间表达类别，不输出原文或确认说明。
 
 ### 公开仓库安全
 
