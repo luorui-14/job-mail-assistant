@@ -11,6 +11,8 @@ from .apple_calendar import AppleCalendar
 from .config import Config
 from .confirmations import is_missing_relative_anchor_only_reason, normalize_confirmation
 from .deadlines import (
+    EXAM_DURATION_RE,
+    FIXED_EXAM_RE,
     SHANGHAI,
     TimeResolutionError,
     assessment_window_from_text,
@@ -467,6 +469,20 @@ def repair_deadlines(config: Config, *, company: str, dry_run: bool = False) -> 
                 continue
             matched += 1
             mail = source[0]
+            if dry_run:
+                window = assessment_window_from_text(mail.body)
+                LOGGER.info(
+                    "Deadline repair source: type=%s time_type=%s stored=%s "
+                    "window_start=%s window_end=%s duration_minutes=%s fixed_schedule=%s "
+                    "start_labels=%d end_labels=%d",
+                    record.text("类型"), record.text("时间类型"),
+                    value_to_datetime(record.fields.get("截止/面试时间")),
+                    window[0].isoformat() if window else None,
+                    window[1].isoformat() if window else None,
+                    sorted({int(m.group(1)) for m in EXAM_DURATION_RE.finditer(mail.body)}),
+                    bool(FIXED_EXAM_RE.search(mail.body)),
+                    mail.body.count("开始时间"), mail.body.count("结束时间"),
+                )
             resolved = _assessment_window_repair(record, mail) or _relative_deadline_repair(
                 record, mail
             )

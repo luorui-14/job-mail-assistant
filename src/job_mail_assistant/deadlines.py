@@ -40,6 +40,7 @@ OTHER_RELATIVE_ANCHOR_RE = re.compile(
     r".{0,12}?\d+\s*(?:个)?(?:工作日|小时|天|日)"
 )
 EXAM_DURATION_RE = re.compile(r"(?:测试|测评|考试|笔试|答题)时长\s*[:：]\s*(\d+)\s*分钟")
+FIXED_EXAM_RE = re.compile(r"统一(?:开考|开始)|准时(?:参加|开考)|固定(?:考试)?时段")
 
 
 def assessment_window_from_text(value: str) -> tuple[datetime, datetime] | None:
@@ -67,7 +68,7 @@ def normalize_assessment_window(parsed: ParsedEmail, body: str) -> datetime | No
     """Correct flexible assessments, retaining fixed exams without duration evidence."""
     if parsed.classification != "action" or parsed.item_type not in {"测评", "笔试", "AI面试"}:
         return None
-    if re.search(r"统一(?:开考|开始)|准时(?:参加|开考)|固定(?:考试)?时段", body):
+    if FIXED_EXAM_RE.search(body):
         return None
     window = assessment_window_from_text(body)
     if window is None:
