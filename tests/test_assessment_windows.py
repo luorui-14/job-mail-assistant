@@ -59,6 +59,15 @@ def test_window_parser_handles_whitespace_and_weekday_before_time():
     assert assessment_window_from_text(body) == (START, END)
 
 
+def test_deadline_window_is_not_blocked_by_generic_attendance_reminder():
+    parsed = ParsedEmail(classification="action", item_type="笔试", time_type="deadline")
+    result = resolve_time(
+        parsed, window_mail().received_at, body=BODY + "。请准时参加笔试。"
+    )
+    assert result.start == END
+    assert parsed.time_type == "deadline"
+
+
 @pytest.mark.parametrize("body", [
     BODY + "；结束时间：2026-11-07 22:30",
     BODY.replace("2026-11-06", "2026-11-04"),
@@ -120,10 +129,12 @@ def test_window_does_not_replace_newer_thread_or_other_selected_time(field, valu
 
 
 @pytest.mark.parametrize("dry_run", [True, False])
+@pytest.mark.parametrize("time_type", ["fixed", "deadline"])
 def test_targeted_window_repair_updates_same_calendar_without_report_or_cursor(
-    monkeypatch, dry_run
+    monkeypatch, dry_run, time_type
 ):
     record = window_record()
+    record.fields["时间类型"] = time_type
     original = dict(record.fields)
     FakeFeishu.records = [record]
     FakeFeishu.cursor = START
@@ -131,7 +142,9 @@ def test_targeted_window_repair_updates_same_calendar_without_report_or_cursor(
     events = []
 
     class WindowMailbox(FakeMailbox):
-        message = window_mail()
+        message = replace(
+            window_mail(), body=BODY + ("。请准时参加。" if time_type == "deadline" else "")
+        )
 
     class CaptureCalendar(FakeCalendar):
         def upsert_event(self, **kwargs):

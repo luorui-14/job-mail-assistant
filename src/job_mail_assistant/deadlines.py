@@ -68,13 +68,13 @@ def normalize_assessment_window(parsed: ParsedEmail, body: str) -> datetime | No
     """Correct flexible assessments, retaining fixed exams without duration evidence."""
     if parsed.classification != "action" or parsed.item_type not in {"测评", "笔试", "AI面试"}:
         return None
-    if FIXED_EXAM_RE.search(body):
-        return None
     window = assessment_window_from_text(body)
     if window is None:
         return None
     start, end = window
     if parsed.time_type == "fixed":
+        if FIXED_EXAM_RE.search(body):
+            return None
         durations = {int(match.group(1)) for match in EXAM_DURATION_RE.finditer(body)}
         if len(durations) != 1:
             return None
