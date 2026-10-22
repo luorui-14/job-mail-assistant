@@ -18,7 +18,7 @@ class TimeResolutionError(ValueError):
 EXPLICIT_DATETIME_RE = re.compile(
     r"(?P<year>\d{4})\s*(?:年|[-/.])\s*"
     r"(?P<month>\d{1,2})\s*(?:月|[-/.])\s*"
-    r"(?P<day>\d{1,2})\s*(?:日)?\s*(?:周[一二三四五六日天]\s*)?"
+    r"(?P<day>\d{1,2})\s*(?:日)?\s*(?:(?:周|星期)[一二三四五六日天]\s*)?"
     r"(?P<hour>\d{1,2})\s*:\s*(?P<minute>\d{2})"
     r"(?:\s*:\s*\d{2})?"
 )
@@ -39,6 +39,50 @@ OTHER_RELATIVE_ANCHOR_RE = re.compile(
     r"(?:点击(?:链接)?|打开(?:链接)?|登录|登陆|开始答题|注册)\s*(?:后|起)"
     r".{0,12}?\d+\s*(?:个)?(?:工作日|小时|天|日)"
 )
+EXAM_DURATION_RE = re.compile(r"(?:测试|测评|考试|笔试|答题)时长\s*[:：]\s*(\d+)\s*分钟")
+
+
+def assessment_window_from_text(value: str) -> tuple[datetime, datetime] | None:
+    """Require a unique, complete, ordered pair of explicitly labelled window times."""
+    endpoints = []
+    for label in ("开始时间", "结束时间"):
+        pattern = label + r"\s*[:：]\s*(" + EXPLICIT_DATETIME_RE.pattern + ")"
+        matches = list(re.finditer(pattern, value))
+        if len(matches) != len(re.findall(label + r"\s*[:：]", value)):
+            return None
+        times = set()
+        for match in matches:
+            recovered = _explicit_datetimes_from_text(match.group(1))
+            if recovered is None:
+                return None
+            times.add(recovered[0])
+        if len(times) != 1:
+            return None
+        endpoints.append(times.pop())
+    start, end = endpoints
+    return (start, end) if end > start else None
+
+
+def normalize_assessment_window(parsed: ParsedEmail, body: str) -> datetime | None:
+    """Correct flexible assessments, retaining fixed exams without duration evidence."""
+    if parsed.classification != "action" or parsed.item_type not in {"测评", "笔试", "AI面试"}:
+        return None
+    if re.search(r"统一(?:开考|开始)|准时(?:参加|开考)|固定(?:考试)?时段", body):
+        return None
+    window = assessment_window_from_text(body)
+    if window is None:
+        return None
+    start, end = window
+    if parsed.time_type == "fixed":
+        durations = {int(match.group(1)) for match in EXAM_DURATION_RE.finditer(body)}
+        if len(durations) != 1:
+            return None
+        minutes = durations.pop()
+        if minutes <= 0 or timedelta(minutes=minutes) >= end - start:
+            return None
+    parsed.time_type = "deadline"
+    parsed.end_time_expression = None
+    return end
 
 
 def relative_deadline_from_text(value: str) -> TimeExpression | None:
@@ -239,6 +283,12 @@ def resolve_time(
     received = _aware_shanghai(received_at)
     if parsed.classification != "action":
         return ResolvedTime(None, None, False, False)
+    window_deadline = normalize_assessment_window(parsed, body) if body else None
+    if window_deadline is not None:
+        return ResolvedTime(
+            window_deadline, None, False, parsed.needs_confirmation,
+            parsed.confirmation_reason if parsed.needs_confirmation else None,
+        )
     expression = parsed.time_expression
     if body and parsed.time_type == "deadline":
         try:

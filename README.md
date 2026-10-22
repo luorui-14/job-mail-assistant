@@ -13,6 +13,12 @@ AI 只理解自然语言和提取时间组成部分。小时、自然日、中�
 
 测评、笔试或异步 AI 面试邀请同时写有生效与失效时刻时，以唯一且明确标注“失效”的时刻作为截止时间。若已处理记录漏填或误填该时间，邮件仍在正常扫描窗口内时会重新处理并更新原记录。
 
+对于用“开始时间/结束时间”标注的考试开放窗口，截止时间取唯一、完整且晚于开始的
+结束时间。答题时长不从截止时间扣除。若 AI 误判为固定考试，只有原文明示的答题时长
+短于开放窗口时才自动纠正；统一开考、要求准时参加的考试及真人面试保留固定安排。
+扫描窗口内误存为窗口开始时间的记录可自动重处理；源邮件接收时间必须与记录一致，
+避免旧线程覆盖新安排。修复时清空旧的事件结束时间，按 deadline 的默认 15 分钟展示。
+
 明确写有“收到邮件后 N 小时/天/工作日”或唯一链接有效期的截止时间，会从正文核对数值和
 单位，再以 IMAP 接收时间计算，避免 AI 将小时误提取成天。存在多个冲突时长时进入人工
 确认；出现明确日期或点击/登录后起算的表达时，不自动应用这条修复规则。已有测评、笔试、
@@ -133,8 +139,9 @@ iCloud 不支持可靠的 UID REPORT 查询，因此程序使用由飞书 `recor
 
 - 每天北京时间 `00:37` 起由 GitHub Actions 调度，并显式使用 `Asia/Shanghai` 时区；避开整点拥堵并预留整个后半夜来吸收调度队列延迟，以尽量在 08:00 前送达早报。
 - 支持 `Run workflow`，可选择 dry-run 或仅重试 Calendar。
-- `repair_relative_company` 可填写精确公司名，仅修复扫描窗口内该公司已有记录的相对
-  截止时间，并按原 UID 更新对应日历。配合 `dry_run=true` 只展示修复前后时间；该模式
+- `repair_relative_company`（保留兼容名称）可填写精确公司名，仅修复扫描窗口内该公司
+  已有记录的相对截止时间或误取考试窗口开始时间的截止时间，并按原 UID 更新对应日历。
+  配合 `dry_run=true` 只展示修复前后时间；该模式
   不调用 AI、不发送报告、不推进游标。未匹配到唯一源邮件时跳过，全部未匹配时返回失败。
 - 使用 concurrency 防止并发写入。
 - 仅授予 `contents: read`。
@@ -170,15 +177,16 @@ JSON Schema / Pydantic 严格校验的同时减少推理耗时。改模型或思
 
 ## 去重和失败恢复
 
-修复已有相对截止时间也可在本地运行（使用现有生产配置）：
+修复已有相对截止时间或考试窗口截止时间也可在本地运行（使用现有生产配置）：
 
 ```powershell
-python -m job_mail_assistant repair-relative-deadlines --company "示例公司" --dry-run
-python -m job_mail_assistant repair-relative-deadlines --company "示例公司"
+python -m job_mail_assistant repair-deadlines --company "示例公司" --dry-run
+python -m job_mail_assistant repair-deadlines --company "示例公司"
 ```
 
 该命令只更新已经通过 Message-ID 或指纹及接收时间匹配的记录，不新建事项。保留人工
 确认状态和其他业务字段；日历失败会保存 `failed` 状态，可使用 `retry-calendar` 重试。
+旧命令名 `repair-relative-deadlines` 仍可使用，与 `repair-deadlines` 行为相同。
 
 - 首选 `Message-ID`；缺失时使用发件人、主题、服务器接收时间和正文哈希组成的指纹。
 - `References`/`In-Reply-To` 命中已有记录时更新原事项；岗位为空时，同公司、同类型、同一

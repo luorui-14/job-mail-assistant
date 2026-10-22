@@ -2,6 +2,14 @@ from job_mail_assistant.__main__ import build_parser, main
 from job_mail_assistant.feishu import FeishuError
 
 
+def test_deadline_repair_command_retains_legacy_alias() -> None:
+    for command in ("repair-deadlines", "repair-relative-deadlines"):
+        args = build_parser().parse_args([command, "--company", "示例企业", "--dry-run"])
+        assert args.command == command
+        assert args.company == "示例企业"
+        assert args.dry_run
+
+
 def test_cli_dry_run_flag() -> None:
     args = build_parser().parse_args(["run", "--dry-run"])
     assert args.command == "run"

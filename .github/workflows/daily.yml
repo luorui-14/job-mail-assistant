@@ -23,7 +23,7 @@ on:
         default: ""
         type: string
       repair_relative_company:
-        description: "修复指定公司已有相对截止时间；不调用 AI、不发送报告、不推进游标"
+        description: "修复指定公司已有相对截止时间或考试窗口截止时间；不调用 AI、不发送报告、不推进游标"
         required: false
         default: ""
         type: string
@@ -76,12 +76,12 @@ jobs:
       - name: Delete selected Calendar events
         if: github.event_name == 'workflow_dispatch' && inputs.calendar_delete_record_ids != '' && inputs.repair_relative_company == ''
         run: python -m job_mail_assistant delete-calendar --record-ids "${{ inputs.calendar_delete_record_ids }}"
-      - name: Repair selected relative deadlines
+      - name: Repair selected assessment deadlines
         if: github.event_name == 'workflow_dispatch' && inputs.repair_relative_company != ''
         env:
           REPAIR_COMPANY: ${{ inputs.repair_relative_company }}
           REPAIR_DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          args=(repair-relative-deadlines --company "$REPAIR_COMPANY")
+          args=(repair-deadlines --company "$REPAIR_COMPANY")
           if [ "$REPAIR_DRY_RUN" = "true" ]; then args+=(--dry-run); fi
           python -m job_mail_assistant "${args[@]}"

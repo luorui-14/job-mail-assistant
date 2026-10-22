@@ -13,8 +13,10 @@ from .confirmations import is_missing_relative_anchor_only_reason, normalize_con
 from .deadlines import (
     SHANGHAI,
     TimeResolutionError,
+    assessment_window_from_text,
     explicit_effective_from_text,
     explicit_expiry_from_text,
+    normalize_assessment_window,
     relative_deadline_from_text,
     resolve_time,
 )
@@ -104,12 +106,33 @@ def _is_repairable(record: BaseRecord, mail: MailMessage) -> bool:
         or (missing_link and any(term in reason for term in ("链接", "入口", "url")))
         or is_missing_relative_anchor_only_reason(reason)
         or _relative_deadline_repair(record, mail) is not None
+        or _assessment_window_repair(record, mail) is not None
         or (
             expiry is not None
             and stored_time != expiry
             and (stored_time is None or selected_effective)
         )
     )
+
+
+def _assessment_window_repair(record: BaseRecord, mail: MailMessage) -> ResolvedTime | None:
+    if value_to_datetime(record.fields.get("邮件接收时间")) != mail.received_at:
+        return None
+    window = assessment_window_from_text(mail.body)
+    if window is None:
+        return None
+    stored = value_to_datetime(record.fields.get("截止/面试时间"))
+    # Never replace a later thread update or an unrelated manually selected time.
+    if stored is not None and stored != window[0]:
+        return None
+    if record.text("类型") not in {"测评", "笔试", "AI面试"}:
+        return None
+    parsed = ParsedEmail.model_validate({
+        "classification": "action", "item_type": record.text("类型"),
+        "time_type": record.text("时间类型") or "none",
+    })
+    deadline = normalize_assessment_window(parsed, mail.body)
+    return ResolvedTime(deadline, None, False, False) if deadline is not None else None
 
 
 def _relative_deadline_repair(record: BaseRecord, mail: MailMessage) -> ResolvedTime | None:
@@ -257,6 +280,8 @@ def record_fields(
         fields["Calendar 状态"] = "pending"
     if resolved.end:
         fields["结束时间"] = datetime_to_millis(resolved.end)
+    elif parsed.time_type == "deadline" and assessment_window_from_text(mail.body):
+        fields["结束时间"] = None
     return fields
 
 
@@ -410,7 +435,7 @@ def retry_calendars(config: Config) -> int:
     return 2 if warnings else 0
 
 
-def repair_relative_deadlines(config: Config, *, company: str, dry_run: bool = False) -> int:
+def repair_deadlines(config: Config, *, company: str, dry_run: bool = False) -> int:
     """Repair existing rows from exact source mail, without AI, reports, or cursor writes."""
     if not company.strip():
         raise ValueError("Deadline repair requires an exact company name")
@@ -442,13 +467,15 @@ def repair_relative_deadlines(config: Config, *, company: str, dry_run: bool = F
                 continue
             matched += 1
             mail = source[0]
-            resolved = _relative_deadline_repair(record, mail)
+            resolved = _assessment_window_repair(record, mail) or _relative_deadline_repair(
+                record, mail
+            )
             if resolved is None:
                 continue
             proposed += 1
             stored = value_to_datetime(record.fields.get("截止/面试时间"))
             LOGGER.info(
-                "Relative deadline repair: received=%s stored=%s corrected=%s dry_run=%s",
+                "Deadline repair: received=%s stored=%s corrected=%s dry_run=%s",
                 mail.received_at.isoformat(),
                 stored.isoformat() if stored else None,
                 resolved.start.isoformat(),
@@ -460,6 +487,7 @@ def repair_relative_deadlines(config: Config, *, company: str, dry_run: bool = F
                 "截止/面试时间": datetime_to_millis(resolved.start),
                 "结束时间": None,
                 "时间为推算": False,
+                "时间类型": "deadline",
                 "Calendar 状态": "pending",
                 "最后处理时间": datetime_to_millis(now),
             }
@@ -479,12 +507,15 @@ def repair_relative_deadlines(config: Config, *, company: str, dry_run: bool = F
                 records=changed, stats=stats,
             )
     LOGGER.info(
-        "Relative deadline repair complete: matched=%d proposed=%d updated=%d "
+        "Deadline repair complete: matched=%d proposed=%d updated=%d "
         "calendar_synced=%d warnings=%d",
         matched, proposed, len(changed), stats.calendar_created + stats.calendar_updated,
         len(warnings),
     )
     return 1 if not matched else (2 if warnings else 0)
+
+
+repair_relative_deadlines = repair_deadlines  # Compatibility for existing callers.
 
 
 def delete_calendar_events(config: Config, record_ids: list[str]) -> int:

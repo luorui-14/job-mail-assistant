@@ -5,7 +5,7 @@ import logging
 import sys
 from datetime import datetime
 
-from .app import delete_calendar_events, repair_relative_deadlines, retry_calendars, run
+from .app import delete_calendar_events, repair_deadlines, retry_calendars, run
 from .config import Config, ConfigError
 from .deadlines import SHANGHAI
 from .feishu import FeishuError
@@ -35,8 +35,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="comma-separated Feishu record IDs",
     )
     repair_parser = subparsers.add_parser(
-        "repair-relative-deadlines",
-        help="repair existing relative deadlines for an exact company without sending reports",
+        "repair-deadlines",
+        aliases=["repair-relative-deadlines"],
+        help="repair existing assessment deadlines for an exact company without sending reports",
     )
     repair_parser.add_argument("--company", required=True)
     repair_parser.add_argument("--dry-run", action="store_true")
@@ -51,11 +52,11 @@ def main() -> int:
     dry_run = getattr(args, "dry_run", False)
     calendar_only = args.command == "retry-calendar"
     calendar_delete = args.command == "delete-calendar"
-    deadline_repair = args.command == "repair-relative-deadlines"
+    deadline_repair = args.command in {"repair-deadlines", "repair-relative-deadlines"}
     try:
         config = Config.from_env()
         if deadline_repair:
-            return repair_relative_deadlines(config, company=args.company, dry_run=dry_run)
+            return repair_deadlines(config, company=args.company, dry_run=dry_run)
         if calendar_delete:
             record_ids = [item.strip() for item in args.record_ids.split(",") if item.strip()]
             return delete_calendar_events(config, record_ids)

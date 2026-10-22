@@ -9,7 +9,7 @@ from openai import APIStatusError, BadRequestError, OpenAI
 from pydantic import ValidationError
 
 from .confirmations import is_missing_relative_anchor_only_reason, normalize_confirmation
-from .deadlines import explicit_expiry_from_text
+from .deadlines import explicit_expiry_from_text, normalize_assessment_window
 from .models import MailMessage, ParsedEmail, TimeExpression
 
 LOGGER = logging.getLogger(__name__)
@@ -45,6 +45,10 @@ SYSTEM_PROMPT = """你是求职邮件信息提取器。只输出符合 JSON Sche
     time_type 必须为 fixed。预约、选时、改约协商和预约截止不得提取成面试发生时间。
 12. 测评/笔试邀请同时写有“生效”和“失效”时，完成截止时间取“失效”时刻；日期和
     时间之间的“周五”等星期标注不改变明确的年月日时分。
+13. 测评/笔试/异步 AI 面试的“开始时间”和“结束时间”若表示可完成考试的开放窗口，
+    time_type 为 deadline，time_expression 取结束时间，end_time_expression 为 null。
+    测试时长（如 80 分钟）是答题耗时，不是开放窗口，也不应从结束时间扣除。
+    明确要求统一开考、固定时段参加的考试仍为 fixed，提取实际开始和结束时间。
 """
 
 
@@ -246,6 +250,7 @@ class AIParser:
             parsed.action_url_index = None
             parsed.needs_confirmation = True
             parsed.confirmation_reason = "AI 返回的链接序号无效"
+        window_deadline = normalize_assessment_window(parsed, mail.body)
         if (
             parsed.classification == "action"
             and parsed.action_url_index is None
@@ -257,7 +262,7 @@ class AIParser:
             parsed.classification == "action"
             and parsed.item_type in {"测评", "笔试", "AI面试"}
             and parsed.time_type != "fixed"
-            and explicit_expiry_from_text(mail.body) is not None
+            and (window_deadline is not None or explicit_expiry_from_text(mail.body) is not None)
         ):
             if parsed.time_type == "none":
                 parsed.time_type = "deadline"
