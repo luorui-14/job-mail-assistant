@@ -21,7 +21,7 @@ def test_ordinary_mail_does_not_enter() -> None:
     assert looks_like_recruiting("产品经理一面通知", "hr@example.com", "请准时参加")
 
 
-def test_job_application_with_explicit_deadline_enters() -> None:
+def test_job_application_with_explicit_deadline_is_excluded() -> None:
     subject = "示例科技公司校园招聘岗位推荐"
     body = """【产品类】产品策略经理（增长方向）
     所属机构：示例科技公司
@@ -30,7 +30,7 @@ def test_job_application_with_explicit_deadline_enters() -> None:
     立即投递
     """
 
-    assert looks_like_recruiting(subject, "recruiting@example.com", body)
+    assert not looks_like_recruiting(subject, "recruiting@example.com", body)
 
 
 def test_job_recommendation_without_application_deadline_is_excluded() -> None:
@@ -125,5 +125,5 @@ def test_parse_mail_prefers_richer_html_job_deadline() -> None:
 
     assert "截止时间：2026-10-10" in parsed.body
     assert "立即投递" in parsed.body
-    assert looks_like_recruiting(parsed.subject, parsed.sender, parsed.body)
+    assert not looks_like_recruiting(parsed.subject, parsed.sender, parsed.body)
     assert parsed.urls == ["https://jobs.example.com/apply"]

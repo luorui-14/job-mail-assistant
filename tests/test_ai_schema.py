@@ -19,7 +19,7 @@ def test_structured_output_schema_requires_all_object_properties() -> None:
     assert "default" not in time_schema["properties"]["year"]
 
 
-def test_job_application_deadline_is_supported(monkeypatch) -> None:
+def test_legacy_application_type_remains_schema_compatible(monkeypatch) -> None:
     parser = AIParser("key", "https://ai.example.com/v1", "model")
     content = """{
         "classification": "action",

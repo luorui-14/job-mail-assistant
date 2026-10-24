@@ -155,6 +155,52 @@ def test_two_runs_do_not_duplicate_record_or_calendar(monkeypatch):
     assert FakeMailbox.fetch_days == [2, 2]
 
 
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_application_misclassified_as_action_does_not_create_items(monkeypatch, dry_run):
+    FakeFeishu.records = []
+    FakeFeishu.cursor_record = None
+    FakeFeishu.cursor = None
+    FakeCalendar.calls = 0
+    FakeMailbox.reports = []
+    mail = MailMessage(
+        uid="application",
+        message_id="application@example.com",
+        fingerprint="b" * 64,
+        subject="示例公司校招网申截止提醒",
+        sender="hr@example.com",
+        received_at=datetime(2026, 8, 27, 10, tzinfo=SHANGHAI),
+        body="请在2026年8月30日12:00前完成投递，后续流程包含笔试和面试。",
+        urls=["https://jobs.example.com/apply"],
+    )
+    monkeypatch.setattr(FakeMailbox, "message", mail)
+    monkeypatch.setattr(
+        FakeAI,
+        "parse",
+        lambda self, mail: ParsedEmail(
+            classification="action",
+            company="示例公司",
+            item_type="投递",
+            time_type="deadline",
+            time_expression=TimeExpression(
+                kind="absolute", year=2026, month=8, day=30, hour=12, minute=0
+            ),
+            action_url_index=0,
+        ),
+    )
+    monkeypatch.setattr("job_mail_assistant.app.QQMailbox", FakeMailbox)
+    monkeypatch.setattr("job_mail_assistant.app.AIParser", FakeAI)
+    monkeypatch.setattr("job_mail_assistant.app.FeishuClient", FakeFeishu)
+    monkeypatch.setattr("job_mail_assistant.app.AppleCalendar", FakeCalendar)
+
+    now = datetime(2026, 8, 28, 8, tzinfo=SHANGHAI)
+    assert run(config(), now=now, dry_run=dry_run) == 0
+    assert FakeFeishu.records == []
+    assert FakeCalendar.calls == 0
+    assert FakeFeishu.cursor == (None if dry_run else now)
+    assert len(FakeMailbox.reports) == (0 if dry_run else 1)
+    assert all("示例公司" not in body for _, body in FakeMailbox.reports)
+
+
 def test_missed_runs_expand_the_mail_scan_window(monkeypatch):
     FakeFeishu.records = []
     FakeFeishu.cursor_record = "state-rec"

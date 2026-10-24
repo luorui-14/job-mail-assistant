@@ -75,7 +75,7 @@ def _signature(
 def _is_trackable_action(
     mail: MailMessage, parsed: ParsedEmail, resolved: ResolvedTime
 ) -> bool:
-    if parsed.classification != "action":
+    if parsed.classification != "action" or parsed.item_type == "投递":
         return False
     if is_non_action_recruiting_notice(mail.subject, mail.body):
         return False
